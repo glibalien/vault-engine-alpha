@@ -1,0 +1,291 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import Database from 'better-sqlite3';
+import * as sqliteVec from 'sqlite-vec';
+import { createSchema } from '../../src/db/schema.js';
+import { WriteLockManager } from '../../src/sync/write-lock.js';
+import { executeDeletion } from '../../src/pipeline/delete.js';
+
+function openDb(): Database.Database {
+  const db = new Database(':memory:');
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  sqliteVec.load(db);
+  createSchema(db);
+  return db;
+}
+
+function seedNode(db: Database.Database, id: string, filePath: string, title: string): void {
+  const now = Date.now();
+  db.prepare(
+    'INSERT INTO nodes (id, file_path, title, body, content_hash, file_mtime, indexed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(id, filePath, title, '', 'hash', now, now, now);
+  const rowInfo = db.prepare('SELECT rowid FROM nodes WHERE id = ?').get(id) as { rowid: number };
+  db.prepare('INSERT INTO nodes_fts (rowid, title, body) VALUES (?, ?, ?)').run(rowInfo.rowid, title, '');
+  db.prepare('INSERT INTO node_types (node_id, schema_type) VALUES (?, ?)').run(id, 'note');
+  db.prepare(
+    'INSERT INTO node_fields (node_id, field_name, value_text, source) VALUES (?, ?, ?, ?)',
+  ).run(id, 'status', 'open', 'frontmatter');
+  db.prepare(
+    'INSERT INTO relationships (source_id, target, rel_type, context, resolved_target_id) VALUES (?, ?, ?, ?, ?)',
+  ).run(id, 'Other', 'wiki-link', null, null);
+}
+
+describe('executeDeletion', () => {
+  let vaultPath: string;
+  let db: Database.Database;
+  let writeLock: WriteLockManager;
+
+  beforeEach(() => {
+    vaultPath = mkdtempSync(join(tmpdir(), 'vault-engine-test-'));
+    db = openDb();
+    writeLock = new WriteLockManager();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(vaultPath, { recursive: true, force: true });
+  });
+
+  it('removes node, FTS, cascaded children, and writes one file-deleted edits_log row', () => {
+    seedNode(db, 'n1', 'a.md', 'A');
+
+    const result = executeDeletion(db, writeLock, vaultPath, {
+      source: 'tool',
+      node_id: 'n1',
+      file_path: 'a.md',
+      unlink_file: false,
+    });
+
+    expect(result.node_id).toBe('n1');
+    expect(result.file_path).toBe('a.md');
+    expect(result.file_unlinked).toBe(false);
+
+    expect(db.prepare('SELECT COUNT(*) AS c FROM nodes WHERE id = ?').get('n1')).toEqual({ c: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS c FROM node_types WHERE node_id = ?').get('n1')).toEqual({ c: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS c FROM node_fields WHERE node_id = ?').get('n1')).toEqual({ c: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS c FROM relationships WHERE source_id = ?').get('n1')).toEqual({ c: 0 });
+
+    const logs = db.prepare(
+      "SELECT details FROM edits_log WHERE event_type = 'file-deleted' AND node_id = ?",
+    ).all('n1') as { details: string }[];
+    expect(logs).toHaveLength(1);
+    const details = JSON.parse(logs[0].details);
+    expect(details).toEqual({ file_path: 'a.md', source: 'tool' });
+  });
+
+  it('includes reason in edits_log details when supplied', () => {
+    seedNode(db, 'n1', 'a.md', 'A');
+
+    executeDeletion(db, writeLock, vaultPath, {
+      source: 'reconciler',
+      node_id: 'n1',
+      file_path: 'a.md',
+      unlink_file: false,
+      reason: 'file missing during sweep',
+    });
+
+    const row = db.prepare(
+      "SELECT details FROM edits_log WHERE event_type = 'file-deleted' AND node_id = ?",
+    ).get('n1') as { details: string };
+    const details = JSON.parse(row.details);
+    expect(details).toEqual({
+      file_path: 'a.md',
+      source: 'reconciler',
+      reason: 'file missing during sweep',
+    });
+  });
+
+  it('unlinks the file when unlink_file is true and file is present', () => {
+    seedNode(db, 'n1', 'a.md', 'A');
+    const abs = join(vaultPath, 'a.md');
+    writeFileSync(abs, '# A\n', 'utf-8');
+    expect(existsSync(abs)).toBe(true);
+
+    const result = executeDeletion(db, writeLock, vaultPath, {
+      source: 'tool',
+      node_id: 'n1',
+      file_path: 'a.md',
+      unlink_file: true,
+    });
+
+    expect(result.file_unlinked).toBe(true);
+    expect(existsSync(abs)).toBe(false);
+  });
+
+  it('returns file_unlinked=true for ENOENT (file already gone)', () => {
+    seedNode(db, 'n1', 'a.md', 'A');
+    // File intentionally NOT created on disk.
+
+    const result = executeDeletion(db, writeLock, vaultPath, {
+      source: 'tool',
+      node_id: 'n1',
+      file_path: 'a.md',
+      unlink_file: true,
+    });
+
+    expect(result.file_unlinked).toBe(true);
+    expect(result.unlink_error).toBeUndefined();
+  });
+
+  it('surfaces unlink_error and returns file_unlinked=false on non-ENOENT failure', () => {
+    seedNode(db, 'n1', 'a.md', 'A');
+    // Create a directory at the path so unlinkSync rejects with EISDIR/EPERM.
+    mkdirSync(join(vaultPath, 'a.md'));
+
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const result = executeDeletion(db, writeLock, vaultPath, {
+        source: 'tool',
+        node_id: 'n1',
+        file_path: 'a.md',
+        unlink_file: true,
+      });
+
+      expect(result.file_unlinked).toBe(false);
+      expect(result.unlink_error).toBeDefined();
+      expect(result.unlink_error).toMatch(/EISDIR|EPERM/);
+      expect(errSpy).toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it('does not touch the filesystem when unlink_file is false', () => {
+    seedNode(db, 'n1', 'a.md', 'A');
+    const abs = join(vaultPath, 'a.md');
+    writeFileSync(abs, '# A\n', 'utf-8');
+
+    const result = executeDeletion(db, writeLock, vaultPath, {
+      source: 'watcher',
+      node_id: 'n1',
+      file_path: 'a.md',
+      unlink_file: false,
+    });
+
+    expect(result.file_unlinked).toBe(false);
+    expect(existsSync(abs)).toBe(true);
+  });
+
+  it('is a no-op safe call when the node does not exist', () => {
+    const result = executeDeletion(db, writeLock, vaultPath, {
+      source: 'tool',
+      node_id: 'does-not-exist',
+      file_path: 'missing.md',
+      unlink_file: false,
+    });
+
+    expect(result.node_id).toBe('does-not-exist');
+    // No edits_log entry should be created for a no-op
+    const logs = db.prepare(
+      "SELECT COUNT(*) AS c FROM edits_log WHERE event_type = 'file-deleted'",
+    ).get() as { c: number };
+    expect(logs.c).toBe(0);
+  });
+
+  it('cleans up embedding_meta and embedding_vec rows when deleting a node (no orphan leak)', () => {
+    // Seed a node with embedding_meta + embedding_vec rows (the virtual table has
+    // no FK cascade from nodes; embedding_meta does cascade but the vec delete
+    // resolves ids VIA embedding_meta — if the nodes row is deleted first the
+    // cascade empties embedding_meta before the vec cleanup runs, orphaning vec rows).
+    seedNode(db, 'n1', 'a.md', 'A');
+
+    const metaRes = db.prepare(
+      "INSERT INTO embedding_meta (node_id, source_type, source_hash, chunk_index, extraction_ref, embedded_at) VALUES (?, 'node', 'h', 0, NULL, '2026-01-01')"
+    ).run('n1');
+    db.prepare('INSERT INTO embedding_vec (id, vector) VALUES (?, ?)')
+      .run(BigInt(metaRes.lastInsertRowid), new Uint8Array(1024));
+
+    // Verify setup: both rows exist before deletion.
+    expect((db.prepare('SELECT COUNT(*) AS c FROM embedding_meta WHERE node_id = ?').get('n1') as { c: number }).c).toBe(1);
+    expect((db.prepare('SELECT COUNT(*) AS c FROM embedding_vec').get() as { c: number }).c).toBe(1);
+
+    executeDeletion(db, writeLock, vaultPath, {
+      source: 'tool',
+      node_id: 'n1',
+      file_path: 'a.md',
+      unlink_file: false,
+    });
+
+    // Both must be gone — no orphaned vec rows.
+    expect((db.prepare('SELECT COUNT(*) AS c FROM embedding_meta WHERE node_id = ?').get('n1') as { c: number }).c).toBe(0);
+    expect((db.prepare('SELECT COUNT(*) AS c FROM embedding_vec').get() as { c: number }).c).toBe(0);
+  });
+
+  function seedMemory(db: Database.Database, row: {
+    scope: 'vault' | 'node'; node_id?: string | null; evidence_node_id?: string | null;
+    content: string; expired_at?: string | null;
+  }): number {
+    const T = '2026-01-01T00:00:00.000Z';
+    const r = db.prepare(
+      `INSERT INTO memories (source, scope, node_id, content, created_at, updated_at, valid_at, evidence_kind, evidence_node_id, expired_at)
+       VALUES ('curator', ?, ?, ?, ?, ?, ?, 'note', ?, ?)`,
+    ).run(row.scope, row.node_id ?? null, row.content, T, T, T, row.evidence_node_id ?? null, row.expired_at ?? null);
+    return Number(r.lastInsertRowid);
+  }
+
+  it('expires node-scoped and evidence-linked memories inside the deletion (reason source-deleted)', () => {
+    seedNode(db, 'n1', 'a.md', 'A');
+    const scoped = seedMemory(db, { scope: 'node', node_id: 'n1', content: 'scoped fact' });
+    const linked = seedMemory(db, { scope: 'vault', evidence_node_id: 'n1', content: 'evidence-linked fact' });
+    const both = seedMemory(db, { scope: 'node', node_id: 'n1', evidence_node_id: 'n1', content: 'both classes' });
+    const bystander = seedMemory(db, { scope: 'vault', evidence_node_id: 'other', content: 'unrelated fact' });
+
+    const result = executeDeletion(db, writeLock, vaultPath, {
+      source: 'tool', node_id: 'n1', file_path: 'a.md', unlink_file: false,
+    });
+
+    expect(result.memories_expired).toBe(3); // 'both' counted once, not twice
+    for (const id of [scoped, linked, both]) {
+      const m = db.prepare('SELECT expired_at, expire_reason, node_id, evidence_node_id FROM memories WHERE id = ?')
+        .get(id) as { expired_at: string | null; expire_reason: string | null; node_id: string | null; evidence_node_id: string | null };
+      expect(m.expired_at).not.toBeNull();
+      expect(m.expire_reason).toBe('source-deleted');
+      expect(m.node_id).toBeNull(); // FK backstop fired after the app-level expiry
+    }
+    // evidence pointer outlives the node — forensic, no FK
+    expect((db.prepare('SELECT evidence_node_id FROM memories WHERE id = ?').get(linked) as { evidence_node_id: string }).evidence_node_id).toBe('n1');
+    const un = db.prepare('SELECT expired_at FROM memories WHERE id = ?').get(bystander) as { expired_at: string | null };
+    expect(un.expired_at).toBeNull();
+  });
+
+  it('deleting the Settings/Memories.md projection keeps the memories edited there (#300)', () => {
+    seedNode(db, 'proj', 'Settings/Memories.md', 'Memories');
+    db.prepare('INSERT INTO node_fields (node_id, field_name, value_text, source) VALUES (?, ?, ?, ?)')
+      .run('proj', 'vault_engine_projection', 'memories', 'frontmatter');
+    const owner = seedMemory(db, { scope: 'vault', evidence_node_id: 'proj', content: 'owner memory written in the note' });
+    const result = executeDeletion(db, writeLock, vaultPath, {
+      source: 'watcher', node_id: 'proj', file_path: 'Settings/Memories.md', unlink_file: false,
+    });
+    expect(result.memories_expired).toBe(0);
+    const m = db.prepare('SELECT expired_at, evidence_node_id FROM memories WHERE id = ?').get(owner) as { expired_at: string | null; evidence_node_id: string };
+    expect(m.expired_at).toBeNull();
+    expect(m.evidence_node_id).toBe('proj'); // the provenance pointer is kept, as for any deleted source
+  });
+
+  it('a note merely named like the projection, without its frontmatter marker, still retires its memories', () => {
+    seedNode(db, 'fake', 'Settings/Memories.md', 'Memories');
+    const linked = seedMemory(db, { scope: 'vault', evidence_node_id: 'fake', content: 'drawn from an ordinary note' });
+    executeDeletion(db, writeLock, vaultPath, { source: 'tool', node_id: 'fake', file_path: 'Settings/Memories.md', unlink_file: false });
+    expect((db.prepare('SELECT expire_reason FROM memories WHERE id = ?').get(linked) as { expire_reason: string }).expire_reason).toBe('source-deleted');
+  });
+
+  it('already-expired dependents are not re-expired and not counted', () => {
+    seedNode(db, 'n2', 'b.md', 'B');
+    seedMemory(db, { scope: 'node', node_id: 'n2', content: 'long gone', expired_at: '2026-01-02T00:00:00.000Z' });
+    const result = executeDeletion(db, writeLock, vaultPath, {
+      source: 'watcher', node_id: 'n2', file_path: 'b.md', unlink_file: false,
+    });
+    expect(result.memories_expired).toBe(0);
+  });
+
+  it('a node with no dependent memories reports memories_expired 0', () => {
+    seedNode(db, 'n3', 'c.md', 'C');
+    const result = executeDeletion(db, writeLock, vaultPath, {
+      source: 'tool', node_id: 'n3', file_path: 'c.md', unlink_file: false,
+    });
+    expect(result.memories_expired).toBe(0);
+  });
+});

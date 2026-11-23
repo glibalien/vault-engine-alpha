@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.vault-engine/
+*.db
+*.db-wal
+*.db-shm
+.worktrees/
+.codex
+.superpowers/
+
+# search benchmark — vault-specific, regenerated
+packages/engine/bench/baseline*.json
+packages/engine/bench/golden-conceptual.local.yaml
+packages/engine/bench/*.bench.db
+packages/engine/bench/*.bench.db-*

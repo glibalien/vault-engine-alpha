@@ -1,0 +1,57 @@
+{
+  "name": "vault-curator",
+  "version": "0.1.0",
+  "description": "AI application that builds and maintains project wikis in a markdown vault via vault-engine",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "bin": {
+    "vault-curator": "dist/run.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "curate": "tsx src/run.ts",
+    "start": "node dist/run.js",
+    "start:server": "node dist/server.js",
+    "eval": "tsx src/eval.ts",
+    "eval:capture": "tsx src/eval-capture.ts",
+    "eval:extraction": "tsx src/eval-extraction.ts",
+    "eval:typing": "tsx src/eval-typing.ts",
+    "eval:reconcile": "tsx src/eval-reconcile.ts",
+    "eval:conversation": "tsx src/eval-conversation.ts",
+    "eval:wiki": "tsx src/eval-wiki.ts",
+    "eval:dossier": "tsx src/eval-dossier.ts",
+    "eval:field-guess-live": "tsx scripts/check-field-guess-model.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@vault/chat-core": "^0.1.0",
+    "@vault/contract": "^0.1.0",
+    "@vault/llm": "^0.1.0",
+    "@vault/pricing": "^0.1.0",
+    "@vault/settings-registry": "^0.1.0",
+    "better-sqlite3": "^12.8.0",
+    "dotenv": "^17.0.0",
+    "express": "^5.2.1",
+    "marked": "^14.1.4",
+    "openai": "^6.42.0",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  }
+}

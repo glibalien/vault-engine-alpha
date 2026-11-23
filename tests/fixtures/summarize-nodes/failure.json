@@ -1,0 +1,14 @@
+{
+  "ok": false,
+  "error": {
+    "code": "INVALID_PARAMS",
+    "message": "Summary capacity exceeded; narrow filters or lookups.",
+    "details": {
+      "reason": "QUERY_LIMIT_EXCEEDED",
+      "stage": "relationships",
+      "limit": 100000,
+      "observed_at_least": 100001
+    }
+  },
+  "warnings": []
+}

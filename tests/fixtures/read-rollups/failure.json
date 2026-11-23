@@ -1,0 +1,13 @@
+{
+  "ok": false,
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "Selected definition has an invalid dependency.",
+    "details": {
+      "reason": "INVALID_ROLLUP_DEFINITION",
+      "schema": "project",
+      "name": "next_due_date"
+    }
+  },
+  "warnings": []
+}

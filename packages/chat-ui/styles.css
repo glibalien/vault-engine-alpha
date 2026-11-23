@@ -1,0 +1,238 @@
+/* ============================================================
+   @vault/chat-ui — chat read-side styles
+   Carved verbatim from packages/chat/src/web/theme.css.
+   Do NOT include :root token definitions here (those live in theme.css).
+   ============================================================ */
+
+/* ---- chat column thread ---- */
+.thread { padding: 18px 16px 8px; display: flex; flex-direction: column; gap: 18px; }
+
+/* ---- messages ---- */
+.msg { display: flex; gap: 11px; max-width: 100%; }
+.msg .av {
+  width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+  display: grid; place-items: center; font-family: var(--font-mono); font-size: 11px;
+  border: 1px solid var(--border-2);
+}
+.msg .av svg { width: 14px; height: 14px; }
+.msg.user .av { background: var(--elevated); color: var(--text-dim); }
+.msg.assistant .av { background: linear-gradient(150deg, var(--accent-bright), var(--accent)); color: var(--accent-ink); border-color: var(--accent-line); }
+.msg .body { flex: 1; min-width: 0; padding-top: 2px; line-height: 1.55; font-size: 13.5px; }
+.msg .body p { margin: 0 0 8px; }
+.msg .body p:last-child { margin-bottom: 0; }
+.msg.user .body { color: var(--text-dim); }
+.msg .body pre {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 10px; overflow-x: auto; font-family: var(--font-mono); font-size: 12px;
+}
+.msg .body code { font-family: var(--font-mono); font-size: .92em; background: var(--panel-2); border: 1px solid var(--border); padding: 1px 5px; border-radius: 4px; color: var(--accent-bright); }
+.msg .body pre code { background: none; border: none; padding: 0; color: inherit; }
+.msg .body table { border-collapse: collapse; margin: 8px 0; font-size: 12.5px; display: block; max-width: 100%; overflow-x: auto; }
+.msg .body th, .msg .body td { border: 1px solid var(--border); padding: 4px 9px; text-align: left; }
+.msg .body th { background: var(--panel-2); font-weight: 600; }
+.msg .body a { color: var(--link); text-decoration: none; border-bottom: 1px solid var(--accent-line); }
+.msg .body blockquote { margin: 8px 0; padding: 2px 14px; border-left: 2px solid var(--accent-line); color: var(--text-dim); font-style: italic; }
+
+/* ---- wikilink reference button ---- */
+.wl-ref { border:0; background:transparent; color:var(--link); font:inherit; padding:0; cursor:pointer; text-decoration:underline; }
+
+/* ---- tool call ---- */
+.toolcall {
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--panel-2); margin: 8px 0; overflow: hidden;
+  font-family: var(--font-mono); font-size: 11.5px;
+}
+.toolcall .tc-head {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer;
+  transition: background var(--fast); min-width: 0;
+}
+.toolcall .tc-head:hover { background: var(--hover); }
+.toolcall .tc-icon { color: var(--accent); display: grid; place-items: center; flex-shrink: 0; }
+.toolcall .tc-icon svg { width: 13px; height: 13px; }
+.toolcall .tc-name { color: var(--text); font-weight: 500; white-space: nowrap; flex-shrink: 0; }
+.toolcall .tc-name.err { color: var(--st-blocked); }
+.toolcall .tc-args { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); }
+.toolcall .chip { background: color-mix(in srgb, var(--st-progress) 22%, transparent); color: var(--st-progress); border-radius: 4px; padding: 0 5px; font-size: 10px; flex-shrink: 0; }
+.toolcall .tc-status { margin-left: auto; display: flex; align-items: center; gap: 7px; color: var(--text-faint); white-space: nowrap; flex-shrink: 0; }
+.toolcall .tc-status .ok { color: var(--st-done); }
+.toolcall .tc-status .err { color: var(--st-blocked); }
+.toolcall .tc-status .chev { width: 11px; height: 11px; color: var(--text-faint); transition: transform var(--fast); }
+.toolcall .tc-status .chev.open { transform: rotate(90deg); }
+.toolcall .spin { width: 11px; height: 11px; border: 1.5px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.toolcall .tc-detail {
+  padding: 8px 10px 10px; border-top: 1px solid var(--border); color: var(--text-dim);
+  line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  max-height: 320px; overflow-y: auto; font-size: 11px;
+}
+.toolcall .tc-detail strong { display: block; color: var(--text); font-family: var(--font-ui); margin-bottom: 6px; }
+.toolcall .tc-detail pre { margin: 0; white-space: pre-wrap; font: inherit; }
+
+/* ---- reasoning: a model's thinking, muted; open while it streams, then one line ---- */
+.reasoning { margin: 6px 0; color: var(--text-faint); font-size: 12.5px; }
+.reasoning .rs-head {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 0;
+  cursor: pointer; user-select: none; transition: color var(--fast);
+}
+.reasoning .rs-head:hover { color: var(--text-dim); }
+.reasoning .rs-head .chev { width: 11px; height: 11px; transition: transform var(--fast); }
+.reasoning .rs-head .chev.open { transform: rotate(90deg); }
+.reasoning .spin { width: 10px; height: 10px; border: 1.5px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+.reasoning .rs-body {
+  margin: 4px 0 2px 5px; padding: 0 0 0 12px; border-left: 2px solid var(--border);
+  color: var(--text-dim); line-height: 1.5; overflow-wrap: anywhere;
+}
+.reasoning .rs-body p { margin: 0 0 6px; }
+.reasoning .rs-body p:last-child { margin-bottom: 0; }
+
+/* ---- composer (shared) ---- */
+.composer { padding: 12px 14px 14px; border-top: 1px solid var(--border); flex-shrink: 0; container-type: inline-size; }
+.composer .box {
+  border: 1px solid var(--border-2); border-radius: var(--r-lg);
+  background: var(--panel-2); transition: border-color var(--fast);
+}
+.composer .box:focus-within { border-color: var(--accent-line); }
+.composer textarea {
+  width: 100%; resize: none; border: none; outline: none; background: none;
+  color: var(--text); font-family: var(--font-ui); font-size: 13.5px; line-height: 1.5;
+  padding: 11px 13px 4px; min-height: 56px; max-height: 180px; display: block;
+}
+.composer textarea::placeholder { color: var(--text-faint); }
+.composer .crow { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px 11px; }
+.composer .sigils { display: flex; gap: 5px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); min-width: 0; overflow: hidden; }
+.composer .sigils span { padding: 2px 6px; border-radius: 5px; background: var(--panel); border: 1px solid var(--border); white-space: nowrap; }
+.composer .sigils span b { color: var(--accent); font-weight: 500; }
+.composer .hint { font-family: var(--font-mono); font-size: 10px; color: var(--text-ghost); white-space: nowrap; flex-shrink: 0; }
+.composer .actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.composer .pillbtn {
+  font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--border-2);
+  border-radius: 999px; color: var(--text-dim); padding: 4px 12px;
+  transition: border-color var(--fast), color var(--fast);
+}
+.composer .pillbtn:hover { border-color: var(--border-strong); color: var(--text); }
+.composer .send {
+  width: 30px; height: 30px; border-radius: 8px;
+  background: var(--accent); color: var(--accent-ink); display: grid; place-items: center;
+  transition: transform var(--fast), opacity var(--fast);
+}
+.composer .send:hover { transform: translateY(-1px); }
+.composer .send:disabled { opacity: .4; cursor: default; transform: none; }
+.composer .send svg { width: 15px; height: 15px; }
+/* In a narrow chat column, drop the sigil hints so the send button + ↵ hint stay full-size. */
+@container (max-width: 340px) {
+  .composer .sigils { display: none; }
+}
+
+/* Composer autocomplete dropdown (@ > sigils). Anchored above the textarea. */
+.composer .box { position: relative; }
+.composer-menu {
+  position: absolute; bottom: calc(100% + 6px); left: 0; right: 0;
+  max-height: 260px; overflow-y: auto; z-index: 50;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: var(--r-md); box-shadow: 0 8px 24px rgba(0,0,0,0.28);
+  padding: 4px;
+}
+.composer-menu-head { font: 600 11px/1.4 var(--font-mono, monospace); color: var(--text-faint); padding: 2px 6px; }
+.composer-menu .empty { color: var(--text-faint); padding: 6px 8px; font-size: 13px; }
+.composer-item {
+  display: flex; align-items: baseline; gap: 8px; width: 100%;
+  text-align: left; padding: 6px 8px; border: 0; background: transparent;
+  border-radius: var(--r-sm); cursor: pointer; color: var(--text);
+}
+.composer-item[data-active="true"] { background: var(--active); }
+.composer-item-label { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-item-hint { font: 500 11px/1 var(--font-mono, monospace); color: var(--text-faint); max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
+.composer-item-label { min-width: 8em; }
+.composer-item-row { display: flex; align-items: center; }
+.composer-item-row .composer-item { flex: 1; }
+.composer-item-preview {
+  flex-shrink: 0; width: 26px; height: 26px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; border-radius: var(--r-sm);
+  color: var(--text-faint); cursor: pointer; font-size: 13px;
+  opacity: 0; transition: opacity var(--fast);
+}
+.composer-item-row:hover .composer-item-preview,
+.composer-item-row:focus-within .composer-item-preview { opacity: 1; }
+.composer-item-preview:hover { background: var(--hover); color: var(--text); }
+
+/* Model picker chip + popover (composer .crow, before .sigils). Chip mirrors .ctx-chip sizing;
+   popover mirrors .composer-menu panel styling, anchored above the .crow via the .box's
+   position:relative (see ".composer .box" above). */
+.model-chip { flex-shrink: 0; white-space: nowrap; }
+.model-menu {
+  position: absolute; bottom: calc(100% + 6px); left: 0;
+  min-width: 14em; max-width: 22em; max-height: 320px; overflow-y: auto; z-index: 50;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: var(--r-md); box-shadow: 0 8px 24px rgba(0,0,0,0.28);
+  padding: 4px; display: flex; flex-direction: column;
+}
+.model-menu-group { color: var(--text-faint); font-size: smaller; padding: 6px 8px 2px; }
+.model-menu [role="menuitem"], .model-menu [role="menuitemradio"] {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  text-align: left; padding: 6px 8px; border: 0; background: transparent;
+  border-radius: var(--r-sm); cursor: pointer; color: var(--text); font-size: 13px;
+}
+.model-menu [role="menuitem"]:hover,
+.model-menu [role="menuitemradio"]:not(:disabled):hover { background: var(--hover); }
+.model-menu [aria-checked="true"] { background: var(--active); }
+.model-menu button:disabled { opacity: .45; cursor: not-allowed; }
+.model-hint { margin-left: auto; color: var(--text-faint); font-size: smaller; white-space: nowrap; }
+.model-badge { color: var(--text-faint); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 0 4px; font-size: smaller; }
+
+/* ---- context chips (shared) ---- */
+.ctx-bar-wrap { position: relative; }
+.ctx-bar { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.ctx-bound { font: 11px/1.4 var(--font-ui); color: var(--text-faint); }
+.ctx-bound strong { color: var(--text-dim); font-weight: 600; }
+.ctx-chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.ctx-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--border-2); border-radius: var(--r-sm); background: transparent; color: var(--text-faint); font: 11px var(--font-ui); cursor: pointer; transition: var(--fast); }
+.ctx-chip:hover { color: var(--text-dim); border-color: var(--border-strong); }
+.ctx-chip.on { color: var(--accent-bright); border-color: var(--accent-line); background: var(--accent-dim); }
+.ctx-chip.node { cursor: default; }
+.ctx-chip.add { color: var(--text-faint); border-style: dashed; }
+.ctx-chip-x { border: none; background: none; color: inherit; cursor: pointer; padding: 0 0 0 2px; font-size: 13px; line-height: 1; opacity: .7; }
+.ctx-chip-x:hover { opacity: 1; }
+.ctx-add-pop { position: absolute; top: 100%; left: 12px; right: 12px; z-index: 20; margin-top: 4px; background: var(--elevated); border: 1px solid var(--border-2); border-radius: var(--r-md); box-shadow: var(--shadow-lg); overflow: hidden; }
+.ctx-add-input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: none; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); font: 12px var(--font-ui); outline: none; }
+.ctx-add-rows { max-height: 220px; overflow-y: auto; }
+.ctx-add-row { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 6px 10px; border: none; background: none; color: var(--text-dim); font: 12px var(--font-ui); cursor: pointer; text-align: left; }
+.ctx-add-row:hover { background: var(--hover); color: var(--text); }
+.ctx-add-row .ty { color: var(--text-faint); font: 10px var(--font-mono); }
+.ctx-add-empty { padding: 8px 10px; color: var(--text-faint); font: 11px var(--font-ui); }
+.ctx-board { padding: 2px 8px; border: 1px solid var(--border-2); border-radius: var(--r-sm); background: transparent; color: var(--text-faint); font: 11px var(--font-ui); cursor: pointer; transition: var(--fast); }
+.ctx-board:hover { color: var(--text-dim); border-color: var(--border-strong); }
+.ctx-follow { border: 1px solid var(--border-2); border-radius: var(--r-sm); background: transparent; color: var(--text-faint); font-size: 12px; padding: 1px 7px; cursor: pointer; }
+.ctx-follow.on { color: var(--accent-bright); border-color: var(--accent-line); background: var(--accent-dim); }
+/* ---- conversation switcher (shared) ----
+   Metrics mirror the plugin original (Obsidian --size-4-1/-2 = 4px/8px). The select gets NO
+   background/border chrome here: in Obsidian the `.dropdown` class styles it natively (its
+   chevron is a background-image — any `background` shorthand here resets background-repeat
+   and tiles the arrow); the web-only chrome lives in the web app's theme.css. */
+.vc-conv { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.vc-conv-switcher { flex: 1 1 8em; min-width: 6em; }
+.vc-conv-follow {
+  flex: 0 0 auto; cursor: pointer; padding: 0 4px;
+  background: none; border: 1px solid var(--border); border-radius: var(--r-sm);
+  color: var(--text-faint);
+}
+/* On-state matches .ctx-follow.on — every follow-eye recolors its glyph accent-blue. */
+.vc-conv-follow.on { color: var(--accent-bright); border-color: var(--accent-line); background: var(--accent-dim); }
+.vc-conv-menu-btn {
+  flex: 0 0 auto; cursor: pointer; padding: 0 8px;
+  background: none; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text-faint);
+}
+.vc-conv-menu-btn:hover { color: var(--text); }
+.vc-conv-menu {
+  position: absolute; right: 8px; top: 100%; z-index: 30; margin-top: 4px;
+  display: flex; flex-direction: column; min-width: 14em; max-height: 360px; overflow-y: auto;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: var(--r-md); box-shadow: 0 2px 8px rgba(0,0,0,.15); padding: 4px;
+}
+.vc-conv-menu > button {
+  text-align: left; background: none; border: none; cursor: pointer;
+  padding: 4px 8px; border-radius: var(--r-sm);
+  color: var(--text); font-size: 13px; white-space: nowrap;
+}
+.vc-conv-menu > button:hover { background: var(--hover); }
+.vc-conv-archtoggle { display: flex; align-items: center; gap: 4px; padding: 4px 8px; color: var(--text-faint); font-size: 11px; }

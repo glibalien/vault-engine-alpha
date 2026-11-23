@@ -1,0 +1,70 @@
+{
+  "//": "Resolution-only tsconfig for dependency-cruiser. Its sole job is to put every package's source in ONE TS program so depcruise resolves cross-package ESM `.js`->`.ts` imports (e.g. an engine cross-client import) to a real packages/<pkg>/ path, where the dependency-direction rules can see it. The `paths` map is load-bearing: without it a cross-package import written by PACKAGE NAME (`@vault/contract`) resolves through node_modules into packages/<pkg>/dist/, which the cruiser's `exclude` drops \u2014 so the direction rules only ever fired on RELATIVE imports. Mapping each workspace name to its source entry makes both spellings resolve to packages/<pkg>/src, where the rules can see them. Not used for building.",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@vault/board-core": [
+        "packages/board-core/src/index.ts"
+      ],
+      "@vault/chat-core": [
+        "packages/chat-core/src/index.ts"
+      ],
+      "@vault/chat-ui": [
+        "packages/chat-ui/src/index.ts"
+      ],
+      "@vault/contract": [
+        "packages/contract/src/index.ts"
+      ],
+      "@vault/conversation-core": [
+        "packages/conversation-core/src/index.ts"
+      ],
+      "@vault/llm": [
+        "packages/llm/src/index.ts"
+      ],
+      "@vault/pricing": [
+        "packages/pricing/src/index.ts"
+      ],
+      "@vault/query-core": [
+        "packages/query-core/src/index.ts"
+      ],
+      "@vault/settings-registry": [
+        "packages/settings-registry/src/index.ts"
+      ],
+      "@vault/viz-ui": [
+        "packages/viz-ui/src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "packages/pricing/src",
+    "packages/pricing/test",
+    "packages/llm/src",
+    "packages/llm/test",
+    "packages/settings-registry/src",
+    "packages/engine/src",
+    "packages/engine/tests",
+    "packages/curator/src",
+    "packages/curator/test",
+    "packages/contract/src",
+    "packages/chat-core/src",
+    "packages/chat-core/test",
+    "packages/query-core/src",
+    "packages/query-core/test",
+    "packages/obsidian-plugin/src",
+    "packages/obsidian-plugin/test",
+    "packages/viz-ui/src",
+    "packages/viz-ui/test",
+    "packages/conversation-core/src",
+    "packages/conversation-core/test",
+    "packages/bench/src",
+    "packages/bench/test-e2e",
+    "packages/board-core/src",
+    "packages/chat-ui/src",
+    "packages/installer/src",
+    "packages/installer/test"
+  ]
+}

@@ -1,0 +1,31 @@
+import Database from 'better-sqlite3';
+import { afterEach, beforeEach, expect, it } from 'vitest';
+import { addUiHints } from '../../src/db/migrate.js';
+import { createSchema } from '../../src/db/schema.js';
+import { createGlobalField, getGlobalField, updateGlobalField } from '../../src/global-fields/crud.js';
+import { createSchemaDefinition, patchSchemaDefinition } from '../../src/schema/crud.js';
+import { readCurrentClaims } from '../../src/schema/claims.js';
+let db: Database.Database;
+const groups={version:1 as const,groups:[{name:'active',values:['ready']}]};
+beforeEach(()=>{ db=new Database(':memory:');createSchema(db);addUiHints(db); }); afterEach(()=>db.close());
+it('persists groups and preserves absent/null/empty override semantics',()=>{
+ createGlobalField(db,{name:'status',field_type:'enum',enum_values:['ready','done'],enum_groups:groups,overrides_allowed:{enum_groups:true}});
+ expect(getGlobalField(db,'status')?.enum_groups).toEqual(groups);
+ createSchemaDefinition(db,{name:'task',field_claims:[{field:'status',enum_groups_override:{version:1,groups:[]}}]});
+ patchSchemaDefinition(db,'task',{update_field_claims:[{field:'status',label:'Status'}]});
+ expect(readCurrentClaims(db,'task')[0].enum_groups_override).toEqual({version:1,groups:[]});
+ expect(()=>updateGlobalField(db,'status',{overrides_allowed:{enum_groups:false}})).toThrow();
+ patchSchemaDefinition(db,'task',{update_field_claims:[{field:'status',enum_groups_override:null}]});
+ expect(readCurrentClaims(db,'task')[0].enum_groups_override).toBeNull();
+ updateGlobalField(db,'status',{overrides_allowed:{enum_groups:false}});
+ expect(()=>updateGlobalField(db,'status',{enum_values:['done']})).toThrow();
+ expect(()=>updateGlobalField(db,'status',{field_type:'string',confirm:true})).toThrow();
+ updateGlobalField(db,'status',{enum_groups:null});
+ expect(getGlobalField(db,'status')?.enum_groups).toBeNull();
+});
+it('validates explicit overrides against effective vocabulary without rejecting inherited narrowing',()=>{
+ createGlobalField(db,{name:'status',field_type:'enum',enum_values:['ready','done'],enum_groups:groups,overrides_allowed:{enum_groups:true,enum_values:true}});
+ createSchemaDefinition(db,{name:'task',field_claims:[{field:'status',enum_values_override:['done']}]});
+ expect(()=>patchSchemaDefinition(db,'task',{update_field_claims:[{field:'status',enum_groups_override:groups}]})).toThrow();
+ expect(readCurrentClaims(db,'task')[0].enum_groups_override).toBeNull();
+});

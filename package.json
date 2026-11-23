@@ -1,0 +1,37 @@
+{
+  "name": "vault-engine-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "audit:wiki-reconciliation": "node scripts/audit-wiki-reconciliation.mjs",
+    "build": "npm run build -w @vault/pricing && npm run build -w @vault/settings-registry && npm run build -w @vault/llm && npm run build -w @vault/contract && npm run build -w @vault/chat-core && npm run build -w @vault/query-core && npm run build -w @vault/viz-ui && npm run build -w @vault/board-core && npm run build -w @vault/conversation-core && npm run build -w @vault/chat-ui && npm run build -w vault-engine && npm run build -w vault-curator && npm run build -w vault-installer",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run build:ui -w vault-engine && npm run lint:lockfile && npm run lint:repo-safety && npm run test:repo-safety && npm run lint:deps && npm run typecheck:classification-wire && npm run typecheck:summary-wire && npm run typecheck:rollup-wire && npm run typecheck:traversal-wire && npm run typecheck:provenance-wire && npm run test:provenance && npm run typecheck:eval-models && npm run test:eval-models && npm run test --workspaces --if-present",
+    "test:model": "npm run test:model -w vault-engine",
+    "lint:deps": "node scripts/check-dependency-boundaries.mjs && depcruise --config .dependency-cruiser.cjs packages",
+    "lint:lockfile": "node scripts/check-lockfile-platforms.mjs",
+    "lint:repo-safety": "node scripts/check-repository-safety.mjs",
+    "test:repo-safety": "node --test scripts/check-repository-safety.test.mjs scripts/private-terms.test.mjs",
+    "typecheck:summary-wire": "tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext scripts/typecheck-summary-wire.ts",
+    "typecheck:rollup-wire": "tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext scripts/typecheck-rollup-wire.ts",
+    "typecheck:traversal-wire": "tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext scripts/typecheck-traversal-wire.ts",
+    "typecheck:provenance-wire": "tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext scripts/typecheck-provenance-wire.ts scripts/provenance-integration.test.ts scripts/home-refresh-integration.test.ts scripts/subpage-provenance-integration.test.ts scripts/wiki-rebuild-parity.test.ts scripts/dossier-provenance-integration.test.ts scripts/provenance-capacity.ts",
+    "test:provenance": "node --import tsx --test scripts/provenance-integration.test.ts scripts/home-refresh-integration.test.ts scripts/subpage-provenance-integration.test.ts scripts/wiki-rebuild-parity.test.ts scripts/dossier-provenance-integration.test.ts",
+    "eval:models": "node --import tsx scripts/eval-models.ts",
+    "test:eval-models": "node --import tsx --test scripts/eval-models.test.ts",
+    "typecheck:eval-models": "tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext --types node scripts/eval-models.ts scripts/eval-models.test.ts packages/engine/scripts/eval-consolidation.ts",
+    "bench:provenance": "node --import tsx scripts/provenance-capacity.ts",
+    "typecheck:classification-wire": "tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext scripts/typecheck-classification-wire.ts"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "17.4.3"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "onnxruntime-node@1.24.3": true,
+    "sharp@0.34.5": true
+  }
+}

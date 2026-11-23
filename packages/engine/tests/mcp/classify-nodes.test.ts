@@ -1,0 +1,21 @@
+import {expect,it} from 'vitest';
+import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
+import {classificationDb} from '../helpers/classification-fixture.js';
+import {registerClassifyNodes} from '../../src/mcp/tools/classify-nodes.js';
+import {registerDescribeSchema} from '../../src/mcp/tools/describe-schema.js';
+it('returns envelopes, enforces the response cap and exposes discovery',async()=>{
+ const db=classificationDb();const handlers=new Map<string,(v:unknown)=>Promise<any>>();
+ const server={tool:(name:string,_d:unknown,_s:unknown,h:any)=>handlers.set(name,h)} as unknown as McpServer;
+ registerClassifyNodes(server,db);registerDescribeSchema(server,db);
+ const call=async(name:string,input:unknown)=>JSON.parse((await handlers.get(name)!(input)).content[0].text);
+ expect((await call('classify-nodes',{schema:'task',field:'status',node_ids:['A','E']})).data.results).toHaveLength(2);
+ expect((await call('classify-nodes',{schema:'bad',field:'status',node_ids:['A']})).error.code).toBe('CLASSIFICATION_INVALID_CONFIG');
+ expect((await call('classify-nodes',{schema:'task',field:'status',node_ids:[]})).error.code).toBe('INVALID_PARAMS');
+ const discovery=await call('describe-schema',{name:'task',include:['classification']});
+ expect(discovery.data.classification.version).toBe(1);
+ expect(discovery.data.classification.fields.status.available).toBe(true);
+ expect((await call('describe-schema',{name:'task'})).data.classification).toBeUndefined();
+ db.prepare("UPDATE node_fields SET value_text=? WHERE node_id='A' AND field_name='status'").run('x'.repeat(262144));
+ expect((await call('classify-nodes',{schema:'task',field:'status',node_ids:['A']})).error.code).toBe('CLASSIFICATION_LIMIT_EXCEEDED');
+ db.close();
+});

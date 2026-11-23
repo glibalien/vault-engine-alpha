@@ -1,0 +1,75 @@
+{
+  "ok": true,
+  "data": {
+    "relationship_views": {
+      "schema": "project",
+      "relationship_views_hash": "ff0c6cc5f89b0374f3a9fce3ba4228a0d260a1f8d238bea8c46886a914bfa9cc",
+      "state": "valid",
+      "relations": [
+        {
+          "definition": {
+            "name": "tasks",
+            "direction": "incoming",
+            "field": "project",
+            "filter": {
+              "types": [
+                "task"
+              ]
+            }
+          },
+          "state": "valid"
+        }
+      ],
+      "rollups": [
+        {
+          "definition": {
+            "name": "open_task_count",
+            "relation": "tasks",
+            "filter": {
+              "fields": {
+                "status": {
+                  "one_of": [
+                    "open",
+                    "in-progress"
+                  ]
+                }
+              }
+            },
+            "metric": {
+              "op": "count"
+            }
+          },
+          "state": "valid",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "definition": {
+            "name": "next_due_date",
+            "relation": "tasks",
+            "filter": {
+              "fields": {
+                "status": {
+                  "one_of": [
+                    "open",
+                    "in-progress"
+                  ]
+                }
+              }
+            },
+            "metric": {
+              "op": "min",
+              "field": "due",
+              "date_mode": "calendar_date"
+            }
+          },
+          "state": "valid",
+          "type": "date",
+          "nullable": true
+        }
+      ]
+    },
+    "relationship_views_hash": "ff0c6cc5f89b0374f3a9fce3ba4228a0d260a1f8d238bea8c46886a914bfa9cc"
+  },
+  "warnings": []
+}

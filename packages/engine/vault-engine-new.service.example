@@ -1,0 +1,16 @@
+[Unit]
+Description=Vault Engine (new) MCP Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/node /path/to/vault-engine/dist/index.js /path/to/vault/.vault-engine/vault.db /path/to/vault --transport http --port 3334
+WorkingDirectory=/path/to/vault-engine
+User=YOUR_USER
+Environment=NODE_ENV=production
+EnvironmentFile=/path/to/vault-engine/.env
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

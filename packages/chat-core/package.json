@@ -1,0 +1,40 @@
+{
+  "name": "@vault/chat-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./transcript": {
+      "types": "./dist/transcript.d.ts",
+      "import": "./dist/transcript.js"
+    },
+    "./conversation-inspection": {
+      "types": "./dist/conversation-inspection.d.ts",
+      "import": "./dist/conversation-inspection.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.20",
+    "@ai-sdk/fireworks": "^3.0.15",
+    "@ai-sdk/openai": "^4.0.20",
+    "@openrouter/ai-sdk-provider": "^3.0.0",
+    "@vault/settings-registry": "^0.1.0",
+    "ai": "^7.0.37"
+  },
+  "devDependencies": {
+    "msw": "^2.14.6",
+    "typescript": "^6.0.0",
+    "vitest": "^4.0.0"
+  }
+}

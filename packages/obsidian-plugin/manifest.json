@@ -1,0 +1,9 @@
+{
+  "id": "vault-engine",
+  "name": "Vault Engine",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Query and view your Vault Engine knowledge graph inside Obsidian.",
+  "author": "Vault Engine contributors",
+  "isDesktopOnly": true
+}

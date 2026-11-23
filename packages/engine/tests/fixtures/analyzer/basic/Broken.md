@@ -1,0 +1,4 @@
+---
+kind: [
+---
+Fixture body.

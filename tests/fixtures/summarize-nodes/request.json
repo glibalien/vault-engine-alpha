@@ -1,0 +1,75 @@
+{
+  "filter": {
+    "types": [
+      "project"
+    ]
+  },
+  "relations": [
+    {
+      "as": "all_tasks",
+      "direction": "incoming",
+      "field": "project",
+      "filter": {
+        "types": [
+          "task"
+        ]
+      },
+      "metrics": [
+        {
+          "as": "count",
+          "op": "count"
+        }
+      ]
+    },
+    {
+      "as": "outstanding_tasks",
+      "direction": "incoming",
+      "field": "project",
+      "filter": {
+        "types": [
+          "task"
+        ],
+        "fields": {
+          "status": {
+            "one_of": [
+              "open",
+              "in-progress"
+            ]
+          }
+        }
+      },
+      "metrics": [
+        {
+          "as": "count",
+          "op": "count"
+        },
+        {
+          "as": "next_due",
+          "op": "min",
+          "field": "due",
+          "date_mode": "calendar_date"
+        }
+      ],
+      "lookup": {
+        "fields": [
+          "status",
+          "due"
+        ],
+        "limit": 3
+      }
+    },
+    {
+      "as": "sample",
+      "direction": "incoming",
+      "field": "project",
+      "filter": {
+        "types": [
+          "task"
+        ]
+      },
+      "lookup": {
+        "limit": 1
+      }
+    }
+  ]
+}

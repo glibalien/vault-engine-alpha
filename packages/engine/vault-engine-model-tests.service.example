@@ -1,0 +1,29 @@
+# /etc/systemd/system/vault-engine-model-tests.service
+# Replace YOUR_USER and /path/to/vault-engine during installation.
+[Unit]
+Description=Vault Engine real-model integration tests
+
+[Service]
+Type=oneshot
+User=YOUR_USER
+WorkingDirectory=/path/to/vault-engine
+EnvironmentFile=/etc/vault-engine-model-tests.env
+ExecStart=/path/to/vault-engine/scripts/run-model-integration-tests.sh
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30min
+UMask=0077
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateNetwork=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryHigh=2G
+MemoryMax=3G

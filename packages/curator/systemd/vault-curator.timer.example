@@ -1,0 +1,13 @@
+# DEPRECATED / RETIRED by Track 3 step 3.
+#
+# The curator no longer runs as a oneshot on a timer. It is now a long-lived
+# server that owns its own DST-correct daily sweep (CURATOR_SWEEP_AT, default
+# 05:00) — see vault-curator.service.example.
+#
+# To migrate (the old timer/service were USER units; the new server is a
+# SYSTEM unit so it starts at boot and orders After the engine service):
+#   systemctl --user disable --now vault-curator.timer
+#   systemctl --user stop vault-curator.service 2>/dev/null || true
+#   sudo cp systemd/vault-curator.service.example /etc/systemd/system/vault-curator.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now vault-curator.service

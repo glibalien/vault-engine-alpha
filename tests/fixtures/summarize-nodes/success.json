@@ -1,0 +1,317 @@
+{
+  "ok": true,
+  "data": {
+    "kind": "node_summaries",
+    "version": 1,
+    "definitions": [
+      {
+        "as": "all_tasks",
+        "direction": "incoming",
+        "field": "project",
+        "filter": {
+          "types": [
+            "task"
+          ]
+        },
+        "metrics": [
+          {
+            "as": "count",
+            "op": "count",
+            "type": "integer",
+            "nullable": false
+          }
+        ]
+      },
+      {
+        "as": "outstanding_tasks",
+        "direction": "incoming",
+        "field": "project",
+        "filter": {
+          "types": [
+            "task"
+          ],
+          "fields": {
+            "status": {
+              "one_of": [
+                "open",
+                "in-progress"
+              ]
+            }
+          }
+        },
+        "metrics": [
+          {
+            "as": "count",
+            "op": "count",
+            "type": "integer",
+            "nullable": false
+          },
+          {
+            "as": "next_due",
+            "op": "min",
+            "field": "due",
+            "date_mode": "calendar_date",
+            "type": "date",
+            "nullable": true
+          }
+        ],
+        "lookup": {
+          "limit": 3,
+          "fields": [
+            {
+              "name": "status",
+              "type": "enum"
+            },
+            {
+              "name": "due",
+              "type": "date"
+            }
+          ]
+        }
+      },
+      {
+        "as": "sample",
+        "direction": "incoming",
+        "field": "project",
+        "filter": {
+          "types": [
+            "task"
+          ]
+        },
+        "metrics": [],
+        "lookup": {
+          "limit": 1,
+          "fields": []
+        }
+      }
+    ],
+    "rows": [
+      {
+        "node": {
+          "id": "P1",
+          "title": "P1",
+          "file_path": "P1.md",
+          "version": 1
+        },
+        "relations": {
+          "all_tasks": {
+            "metrics": {
+              "count": 3
+            }
+          },
+          "outstanding_tasks": {
+            "metrics": {
+              "count": 2,
+              "next_due": "2026-09-18"
+            },
+            "lookup": {
+              "items": [
+                {
+                  "id": "T1",
+                  "title": "T1",
+                  "file_path": "T1.md",
+                  "version": 1,
+                  "fields": {
+                    "status": "open",
+                    "due": "2026-09-20"
+                  }
+                },
+                {
+                  "id": "T2",
+                  "title": "T2",
+                  "file_path": "T2.md",
+                  "version": 1,
+                  "fields": {
+                    "status": "in-progress",
+                    "due": "2026-09-18"
+                  }
+                }
+              ],
+              "total": 2,
+              "returned": 2,
+              "truncated": false
+            }
+          },
+          "sample": {
+            "metrics": {},
+            "lookup": {
+              "items": [
+                {
+                  "id": "T1",
+                  "title": "T1",
+                  "file_path": "T1.md",
+                  "version": 1,
+                  "fields": {}
+                }
+              ],
+              "total": 3,
+              "returned": 1,
+              "truncated": true
+            }
+          }
+        }
+      },
+      {
+        "node": {
+          "id": "P2",
+          "title": "P2",
+          "file_path": "P2.md",
+          "version": 1
+        },
+        "relations": {
+          "all_tasks": {
+            "metrics": {
+              "count": 3
+            }
+          },
+          "outstanding_tasks": {
+            "metrics": {
+              "count": 3,
+              "next_due": "2026-09-18"
+            },
+            "lookup": {
+              "items": [
+                {
+                  "id": "T2",
+                  "title": "T2",
+                  "file_path": "T2.md",
+                  "version": 1,
+                  "fields": {
+                    "status": "in-progress",
+                    "due": "2026-09-18"
+                  }
+                },
+                {
+                  "id": "T4",
+                  "title": "T4",
+                  "file_path": "T4.md",
+                  "version": 1,
+                  "fields": {
+                    "status": "open"
+                  }
+                },
+                {
+                  "id": "T6",
+                  "title": "T6",
+                  "file_path": "T6.md",
+                  "version": 1,
+                  "fields": {
+                    "status": "open",
+                    "due": null
+                  }
+                }
+              ],
+              "total": 3,
+              "returned": 3,
+              "truncated": false
+            }
+          },
+          "sample": {
+            "metrics": {},
+            "lookup": {
+              "items": [
+                {
+                  "id": "T2",
+                  "title": "T2",
+                  "file_path": "T2.md",
+                  "version": 1,
+                  "fields": {}
+                }
+              ],
+              "total": 3,
+              "returned": 1,
+              "truncated": true
+            }
+          }
+        }
+      },
+      {
+        "node": {
+          "id": "P3",
+          "title": "P3",
+          "file_path": "P3.md",
+          "version": 1
+        },
+        "relations": {
+          "all_tasks": {
+            "metrics": {
+              "count": 0
+            }
+          },
+          "outstanding_tasks": {
+            "metrics": {
+              "count": 0,
+              "next_due": null
+            },
+            "lookup": {
+              "items": [],
+              "total": 0,
+              "returned": 0,
+              "truncated": false
+            }
+          },
+          "sample": {
+            "metrics": {},
+            "lookup": {
+              "items": [],
+              "total": 0,
+              "returned": 0,
+              "truncated": false
+            }
+          }
+        }
+      }
+    ],
+    "page": {
+      "total": 3,
+      "returned": 3,
+      "limit": 50,
+      "offset": 0,
+      "has_more": false
+    }
+  },
+  "warnings": [
+    {
+      "code": "CROSS_NODE_FILTER_UNRESOLVED",
+      "severity": "warning",
+      "message": "Unresolved references exist for this field; summaries include resolved memberships only. The warning scope is vault-wide.",
+      "details": {
+        "relation": "all_tasks",
+        "field": "project",
+        "scope": "vault_rel_type"
+      }
+    },
+    {
+      "code": "CROSS_NODE_FILTER_UNRESOLVED",
+      "severity": "warning",
+      "message": "Unresolved references exist for this field; summaries include resolved memberships only. The warning scope is vault-wide.",
+      "details": {
+        "relation": "outstanding_tasks",
+        "field": "project",
+        "scope": "vault_rel_type"
+      }
+    },
+    {
+      "code": "CROSS_NODE_FILTER_UNRESOLVED",
+      "severity": "warning",
+      "message": "Unresolved references exist for this field; summaries include resolved memberships only. The warning scope is vault-wide.",
+      "details": {
+        "relation": "sample",
+        "field": "project",
+        "scope": "vault_rel_type"
+      }
+    },
+    {
+      "code": "RESULT_TRUNCATED",
+      "severity": "warning",
+      "message": "Related lookup items were limited; totals and metrics remain exact.",
+      "details": {
+        "relation": "sample",
+        "parent_ids": [
+          "P1",
+          "P2"
+        ]
+      }
+    }
+  ]
+}

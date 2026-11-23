@@ -1,0 +1,12 @@
+# /etc/systemd/system/vault-engine-model-tests.timer
+[Unit]
+Description=Run Vault Engine real-model integration tests weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 03:30:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=vault-engine-model-tests.service
+
+[Install]
+WantedBy=timers.target

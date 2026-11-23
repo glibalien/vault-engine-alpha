@@ -1,0 +1,14 @@
+{
+  "ok": false,
+  "error": {
+    "code": "INVALID_PARAMS",
+    "message": "Traversal capacity exceeded; reduce depth or choose another root.",
+    "details": {
+      "reason": "QUERY_LIMIT_EXCEEDED",
+      "stage": "nodes",
+      "limit": 500,
+      "observed_at_least": 501
+    }
+  },
+  "warnings": []
+}

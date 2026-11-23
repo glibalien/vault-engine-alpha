@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.worktrees/
+.superpowers/
+.codex
+*.log
+.state/
+.eval/
+eval/corpus.json

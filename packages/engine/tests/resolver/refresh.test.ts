@@ -1,0 +1,247 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import Database from 'better-sqlite3';
+import { createSchema } from '../../src/db/schema.js';
+import { refreshOnCreate, refreshOnRename, refreshOnDelete, backfillResolvedTargets } from '../../src/resolver/refresh.js';
+
+let db: Database.Database;
+
+beforeEach(() => {
+  db = new Database(':memory:');
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  createSchema(db);
+});
+
+function insertNode(id: string, file_path: string, title: string | null) {
+  db.prepare(
+    'INSERT INTO nodes (id, file_path, title, body, content_hash, file_mtime, indexed_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, file_path, title, null, null, null, null);
+}
+function insertRel(source_id: string, target: string, rel_type = 'wiki-link') {
+  db.prepare(
+    'INSERT INTO relationships (source_id, target, rel_type, context, resolved_target_id) VALUES (?, ?, ?, ?, NULL)'
+  ).run(source_id, target, rel_type, null);
+}
+function resolvedFor(source_id: string, target: string): string | null {
+  const row = db.prepare(
+    'SELECT resolved_target_id FROM relationships WHERE source_id = ? AND target = ?'
+  ).get(source_id, target) as { resolved_target_id: string | null } | undefined;
+  return row?.resolved_target_id ?? null;
+}
+
+describe('refreshOnCreate', () => {
+  it('resolves unresolved edges pointing at the new node by file_path', () => {
+    insertNode('src1', 'writer.md', 'Writer');
+    insertRel('src1', 'Projects/Acme.md');
+    insertNode('new1', 'Projects/Acme.md', 'Acme');
+    refreshOnCreate(db, 'new1');
+    expect(resolvedFor('src1', 'Projects/Acme.md')).toBe('new1');
+  });
+
+  it('resolves by exact title', () => {
+    insertNode('src1', 'writer.md', 'Writer');
+    insertRel('src1', 'Acme Corp');
+    insertNode('new1', 'deeply/nested/Acme Corp.md', 'Acme Corp');
+    refreshOnCreate(db, 'new1');
+    expect(resolvedFor('src1', 'Acme Corp')).toBe('new1');
+  });
+
+  it('resolves by basename', () => {
+    insertNode('src1', 'writer.md', 'Writer');
+    insertRel('src1', 'Acme');
+    insertNode('new1', 'dir/Acme.md', null);
+    refreshOnCreate(db, 'new1');
+    expect(resolvedFor('src1', 'Acme')).toBe('new1');
+  });
+
+  it('resolves by case-folded basename', () => {
+    insertNode('src1', 'writer.md', 'Writer');
+    insertRel('src1', 'acme');
+    insertNode('new1', 'dir/Acme.md', null);
+    refreshOnCreate(db, 'new1');
+    expect(resolvedFor('src1', 'acme')).toBe('new1');
+  });
+
+  it('leaves already-resolved edges alone', () => {
+    insertNode('existing', 'dir/Thing.md', 'Thing');
+    insertNode('src1', 'writer.md', 'Writer');
+    db.prepare(
+      'INSERT INTO relationships (source_id, target, rel_type, context, resolved_target_id) VALUES (?, ?, ?, NULL, ?)'
+    ).run('src1', 'Thing', 'wiki-link', 'existing');
+    insertNode('new1', 'another/Thing.md', 'Thing');
+    refreshOnCreate(db, 'new1');
+    expect(resolvedFor('src1', 'Thing')).toBe('existing'); // not superseded (documented v1 limitation)
+  });
+
+  it('does not touch edges whose target does not match any key', () => {
+    insertNode('src1', 'writer.md', 'Writer');
+    insertRel('src1', 'UnrelatedName');
+    insertNode('new1', 'dir/Acme.md', 'Acme');
+    refreshOnCreate(db, 'new1');
+    expect(resolvedFor('src1', 'UnrelatedName')).toBeNull();
+  });
+});
+
+describe('refreshOnRename', () => {
+  it('nulls edges pointing at the old resolution and re-resolves via resolveTarget', () => {
+    // Start state: nodeA at Foo.md/title Foo. src1 links to "Foo" via wiki-link.
+    insertNode('A', 'Foo.md', 'Foo');
+    insertNode('src1', 'writer.md', 'Writer');
+    db.prepare(
+      'INSERT INTO relationships (source_id, target, rel_type, context, resolved_target_id) VALUES (?, ?, ?, NULL, ?)'
+    ).run('src1', 'Foo', 'wiki-link', 'A');
+
+    // Rename A: Foo.md -> Bar.md, title Foo -> Bar.
+    db.prepare('UPDATE nodes SET file_path = ?, title = ? WHERE id = ?').run('Bar.md', 'Bar', 'A');
+    refreshOnRename(db, 'A');
+
+    // The "Foo" edge no longer matches A's new keys; it becomes NULL (no other node matches).
+    expect(resolvedFor('src1', 'Foo')).toBeNull();
+  });
+
+  it('edges using the new name get resolved after rename', () => {
+    insertNode('A', 'Foo.md', 'Foo');
+    insertNode('src1', 'writer.md', 'Writer');
+    // Pre-rename: src1 links to "Bar" — unresolved.
+    insertRel('src1', 'Bar');
+
+    db.prepare('UPDATE nodes SET file_path = ?, title = ? WHERE id = ?').run('Bar.md', 'Bar', 'A');
+    refreshOnRename(db, 'A');
+
+    expect(resolvedFor('src1', 'Bar')).toBe('A');
+  });
+
+  it('other unique targets in the NULL set re-resolve to a different node if possible', () => {
+    insertNode('A', 'Foo.md', 'Foo');
+    insertNode('B', 'Baz.md', 'Baz');
+    insertNode('src1', 'writer.md', 'Writer');
+    // Pre-rename: src1 links to "Foo" (resolved=A) and "Baz" (resolved=A erroneously, as a stand-in).
+    db.prepare(
+      'INSERT INTO relationships (source_id, target, rel_type, context, resolved_target_id) VALUES (?, ?, ?, NULL, ?)'
+    ).run('src1', 'Foo', 'wiki-link', 'A');
+    db.prepare(
+      'INSERT INTO relationships (source_id, target, rel_type, context, resolved_target_id) VALUES (?, ?, ?, NULL, ?)'
+    ).run('src1', 'Baz', 'wiki-link', 'A');
+
+    db.prepare('UPDATE nodes SET file_path = ?, title = ? WHERE id = ?').run('Qux.md', 'Qux', 'A');
+    refreshOnRename(db, 'A');
+
+    // "Baz" should re-resolve to B via resolveTarget.
+    expect(resolvedFor('src1', 'Baz')).toBe('B');
+    // "Foo" has no matching node; stays NULL.
+    expect(resolvedFor('src1', 'Foo')).toBeNull();
+  });
+});
+
+describe('refreshOnDelete', () => {
+  it('is a no-op in v1 (FK ON DELETE SET NULL handles nullification)', () => {
+    insertNode('A', 'Foo.md', 'Foo');
+    insertNode('src1', 'writer.md', 'Writer');
+    db.prepare(
+      'INSERT INTO relationships (source_id, target, rel_type, context, resolved_target_id) VALUES (?, ?, ?, NULL, ?)'
+    ).run('src1', 'Foo', 'wiki-link', 'A');
+    expect(() => refreshOnDelete(db, 'A')).not.toThrow();
+    // Row still resolves to A — the actual nulling happens via FK, not via this helper.
+    expect(resolvedFor('src1', 'Foo')).toBe('A');
+  });
+});
+
+describe('backfillResolvedTargets', () => {
+  it('populates resolved_target_id for every NULL row that can resolve', () => {
+    insertNode('A', 'Foo.md', 'Foo');
+    insertNode('B', 'dir/Bar.md', 'Bar');
+    insertNode('src1', 'writer.md', 'Writer');
+    insertRel('src1', 'Foo');
+    insertRel('src1', 'Bar');
+    insertRel('src1', 'UnrelatedName');
+
+    const stats = backfillResolvedTargets(db);
+    expect(stats.updated).toBe(2);
+    expect(stats.scanned).toBe(3);
+    expect(resolvedFor('src1', 'Foo')).toBe('A');
+    expect(resolvedFor('src1', 'Bar')).toBe('B');
+    expect(resolvedFor('src1', 'UnrelatedName')).toBeNull();
+  });
+
+  it('is safe to call twice', () => {
+    insertNode('A', 'Foo.md', 'Foo');
+    insertNode('src1', 'writer.md', 'Writer');
+    insertRel('src1', 'Foo');
+    backfillResolvedTargets(db);
+    const second = backfillResolvedTargets(db);
+    // On second call, no NULLs remain.
+    expect(second.updated).toBe(0);
+  });
+
+  it('dedupes identical targets — resolver called once per unique target', () => {
+    insertNode('A', 'Foo.md', 'Foo');
+    for (let i = 0; i < 5; i++) {
+      insertNode(`src${i}`, `w${i}.md`, `W${i}`);
+      insertRel(`src${i}`, 'Foo');
+    }
+    const stats = backfillResolvedTargets(db);
+    expect(stats.updated).toBe(5);
+    expect(stats.uniqueTargets).toBe(1);
+  });
+
+  // Five-tier semantics pinned so the batch implementation can't drift from
+  // resolveTarget. Tier order: file_path → title → basename → case-folded →
+  // NFC-normalized; ambiguity at every tier picks the shortest file_path.
+  it('tier 1: exact file_path beats a title match on another node', () => {
+    insertNode('byPath', 'Exact.md', 'Other');
+    insertNode('byTitle', 'elsewhere/x.md', 'Exact.md');
+    insertNode('src1', 'writer.md', 'Writer');
+    insertRel('src1', 'Exact.md');
+    backfillResolvedTargets(db);
+    expect(resolvedFor('src1', 'Exact.md')).toBe('byPath');
+  });
+
+  it('tier 2: ambiguous title match picks the shortest file_path', () => {
+    insertNode('long', 'deeply/nested/dir/Acme.md', 'Acme Corp');
+    insertNode('short', 'Acme2.md', 'Acme Corp');
+    insertNode('src1', 'writer.md', 'Writer');
+    insertRel('src1', 'Acme Corp');
+    backfillResolvedTargets(db);
+    expect(resolvedFor('src1', 'Acme Corp')).toBe('short');
+  });
+
+  it('tier 3: strips a trailing .md from the target before basename match', () => {
+    insertNode('A', 'dir/Acme.md', null);
+    insertNode('src1', 'writer.md', 'Writer');
+    insertRel('src1', 'Acme.md');
+    backfillResolvedTargets(db);
+    expect(resolvedFor('src1', 'Acme.md')).toBe('A');
+  });
+
+  it('tier 4: case-folded basename match', () => {
+    insertNode('A', 'dir/AcMe.md', null);
+    insertNode('src1', 'writer.md', 'Writer');
+    insertRel('src1', 'acme');
+    backfillResolvedTargets(db);
+    expect(resolvedFor('src1', 'acme')).toBe('A');
+  });
+
+  it('tier 5: NFC-normalized case-folded basename match', () => {
+    // Target uses decomposed é (e + combining acute); file uses composed é.
+    const decomposed = 'cafe\u0301'; // e + combining acute, NOT precomposed - must exercise tier 5
+    insertNode('A', 'dir/Caf\u00e9.md', null);
+    insertNode('src1', 'writer.md', 'Writer');
+    insertRel('src1', decomposed);
+    backfillResolvedTargets(db);
+    expect(resolvedFor('src1', decomposed)).toBe('A');
+  });
+
+  it('re-run resolves stragglers added after a previous run (every-startup contract)', () => {
+    insertNode('src1', 'writer.md', 'Writer');
+    insertRel('src1', 'Later Note');
+    const first = backfillResolvedTargets(db);
+    expect(first.updated).toBe(0);
+
+    // Node arrives later (e.g. created while the engine was down, indexed by
+    // the next fullIndex). The next startup backfill must pick it up.
+    insertNode('late', 'dir/Later Note.md', 'Later Note');
+    const second = backfillResolvedTargets(db);
+    expect(second.updated).toBe(1);
+    expect(resolvedFor('src1', 'Later Note')).toBe('late');
+  });
+});

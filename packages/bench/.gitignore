@@ -1,0 +1,17 @@
+# `bench run` writes two kinds of artifact under .bench/, and they are
+# deliberately treated differently.
+#
+# .bench/runs/<tag>/ — per-run report.md + report.json. Transient, large,
+# regenerable from the same --seed/--tag, and named after a timestamp by
+# default, so tracking them would add an unbounded stream of one-off files.
+# Ignored. (This repo has a documented `git add -A` hazard; an explicit rule
+# is what keeps a stray sweep out of a commit.)
+/.bench/runs/
+
+# .bench/history.jsonl — NOT ignored, on purpose. The spec frames it as the
+# cross-run trend ledger: one append-only line per run, tying a git SHA +
+# seed + model set to the scores it produced. Its whole value is being
+# comparable across time and across machines, which requires it to be in
+# version control. Small, append-only, and merge-friendly (conflicts resolve
+# by keeping both lines). If you are tempted to ignore it, you are throwing
+# away the only record of how this benchmark has moved.

@@ -1,0 +1,45 @@
+name: ci
+# Started by hand only: Actions tab → ci → Run workflow, or
+#   gh workflow run ci.yml --ref <branch> -f platform=macos
+# Pushes and pull requests start nothing. Included Actions minutes are limited and a macOS
+# minute counts about ten Linux minutes, so local tests are the everyday gate and this runs
+# when a change needs another platform checked.
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Where to build and test
+        type: choice
+        options: [linux, macos, both]
+        default: linux
+concurrency:
+  # A second run for the same branch and platform replaces the one still running.
+  group: ci-${{ github.ref }}-${{ inputs.platform }}
+  cancel-in-progress: true
+jobs:
+  build-test:
+    name: build-test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-latest is Apple Silicon, the only Mac that runs the local search model.
+        os: ${{ fromJSON(inputs.platform == 'both' && '["ubuntu-latest","macos-latest"]' || (inputs.platform == 'macos' && '["macos-latest"]' || '["ubuntu-latest"]')) }}
+    runs-on: ${{ matrix.os }}
+    # A hung run would otherwise hold the runner for six hours.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      # Node/Git only — no install needed, so it fails fast on committed secrets
+      # or owner-specific data before any dependency work begins.
+      - run: npm run lint:repo-safety
+      # Fail fast if the committed lockfile is platform-incomplete (missing the
+      # macOS/Windows esbuild binaries), which silently breaks `npm install` off
+      # Linux. Reads package-lock.json only — no install needed, so it runs first.
+      - run: npm run lint:lockfile
+      - run: npm ci
+      - run: npm run build
+      - run: npm test

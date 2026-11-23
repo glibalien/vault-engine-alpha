@@ -1,0 +1,103 @@
+{
+  "ok": true,
+  "data": {
+    "kind": "node_traversal",
+    "version": 1,
+    "root_id": "A",
+    "field": "blockedBy",
+    "direction": "outgoing",
+    "max_depth": 1,
+    "nodes": [
+      {
+        "id": "A",
+        "title": "A",
+        "file_path": "A.md",
+        "version": 1,
+        "fields": {
+          "status": "done",
+          "due": null
+        },
+        "depth": 0
+      },
+      {
+        "id": "B",
+        "title": "B",
+        "file_path": "B.md",
+        "version": 1,
+        "fields": {
+          "status": "done",
+          "due": null
+        },
+        "depth": 1
+      }
+    ],
+    "edges": [
+      {
+        "source_id": "A",
+        "target_id": "B",
+        "field": "blockedBy"
+      }
+    ],
+    "cycles": {
+      "scope": "returned_edges",
+      "components": []
+    },
+    "boundary": {
+      "depth_limited": true,
+      "unexpanded_node_ids": [
+        "B"
+      ]
+    },
+    "resolved_reachability_complete": false,
+    "unresolved": {
+      "scope": "expanded_sources",
+      "raw_count": 1,
+      "source_ids": [
+        "A"
+      ]
+    },
+    "stats": {
+      "returned_nodes": 2,
+      "returned_edges": 1,
+      "raw_rows_examined": 2
+    },
+    "field_definitions": [
+      {
+        "name": "status",
+        "type": "enum"
+      },
+      {
+        "name": "due",
+        "type": "date"
+      },
+      {
+        "name": "label",
+        "type": "string"
+      }
+    ]
+  },
+  "warnings": [
+    {
+      "code": "CROSS_NODE_FILTER_UNRESOLVED",
+      "severity": "warning",
+      "message": "Unresolved references are excluded; the diagnostic scope is explicit.",
+      "details": {
+        "field": "blockedBy",
+        "scope": "expanded_sources",
+        "raw_count": 1,
+        "source_ids": [
+          "A"
+        ]
+      }
+    },
+    {
+      "code": "RESULT_TRUNCATED",
+      "severity": "warning",
+      "message": "Depth-boundary nodes were not expanded.",
+      "details": {
+        "reason": "DEPTH_BOUNDARY",
+        "max_depth": 1
+      }
+    }
+  ]
+}

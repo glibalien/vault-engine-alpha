@@ -1,0 +1,256 @@
+{
+  "ok": true,
+  "data": {
+    "kind": "node_summaries",
+    "version": 1,
+    "evaluation_context": {
+      "time_zone": "America/New_York",
+      "as_of": "2026-09-19T16:00:00.000Z",
+      "calendar_date": "2026-09-19"
+    },
+    "definitions": [
+      {
+        "as": "work",
+        "direction": "incoming",
+        "field": "project",
+        "filter": {
+          "fields": {
+            "status": {
+              "one_of": [
+                "done",
+                "open",
+                "in-progress"
+              ]
+            }
+          }
+        },
+        "metrics": [
+          {
+            "as": "completion",
+            "op": "percentage",
+            "matching_filter": {
+              "fields": {
+                "status": {
+                  "eq": "done"
+                }
+              }
+            },
+            "type": "number",
+            "nullable": true,
+            "unit": "percent"
+          }
+        ]
+      }
+    ],
+    "rows": [
+      {
+        "node": {
+          "id": "P1",
+          "title": "P1",
+          "file_path": "P1.md",
+          "version": 1
+        },
+        "relations": {
+          "work": {
+            "metrics": {
+              "completion": 33.333333333333336
+            },
+            "metric_details": {
+              "completion": {
+                "numerator_count": 1,
+                "denominator_count": 3
+              }
+            }
+          }
+        }
+      },
+      {
+        "node": {
+          "id": "P2",
+          "title": "P2",
+          "file_path": "P2.md",
+          "version": 1
+        },
+        "relations": {
+          "work": {
+            "metrics": {
+              "completion": 0
+            },
+            "metric_details": {
+              "completion": {
+                "numerator_count": 0,
+                "denominator_count": 3
+              }
+            }
+          }
+        }
+      },
+      {
+        "node": {
+          "id": "P3",
+          "title": "P3",
+          "file_path": "P3.md",
+          "version": 1
+        },
+        "relations": {
+          "work": {
+            "metrics": {
+              "completion": null
+            },
+            "metric_details": {
+              "completion": {
+                "numerator_count": 0,
+                "denominator_count": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "node": {
+          "id": "T1",
+          "title": "T1",
+          "file_path": "T1.md",
+          "version": 1
+        },
+        "relations": {
+          "work": {
+            "metrics": {
+              "completion": null
+            },
+            "metric_details": {
+              "completion": {
+                "numerator_count": 0,
+                "denominator_count": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "node": {
+          "id": "T2",
+          "title": "T2",
+          "file_path": "T2.md",
+          "version": 1
+        },
+        "relations": {
+          "work": {
+            "metrics": {
+              "completion": null
+            },
+            "metric_details": {
+              "completion": {
+                "numerator_count": 0,
+                "denominator_count": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "node": {
+          "id": "T3",
+          "title": "T3",
+          "file_path": "T3.md",
+          "version": 1
+        },
+        "relations": {
+          "work": {
+            "metrics": {
+              "completion": null
+            },
+            "metric_details": {
+              "completion": {
+                "numerator_count": 0,
+                "denominator_count": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "node": {
+          "id": "T4",
+          "title": "T4",
+          "file_path": "T4.md",
+          "version": 1
+        },
+        "relations": {
+          "work": {
+            "metrics": {
+              "completion": null
+            },
+            "metric_details": {
+              "completion": {
+                "numerator_count": 0,
+                "denominator_count": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "node": {
+          "id": "T5",
+          "title": "T5",
+          "file_path": "T5.md",
+          "version": 1
+        },
+        "relations": {
+          "work": {
+            "metrics": {
+              "completion": null
+            },
+            "metric_details": {
+              "completion": {
+                "numerator_count": 0,
+                "denominator_count": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "node": {
+          "id": "T6",
+          "title": "T6",
+          "file_path": "T6.md",
+          "version": 1
+        },
+        "relations": {
+          "work": {
+            "metrics": {
+              "completion": null
+            },
+            "metric_details": {
+              "completion": {
+                "numerator_count": 0,
+                "denominator_count": 0
+              }
+            }
+          }
+        }
+      }
+    ],
+    "page": {
+      "total": 9,
+      "returned": 9,
+      "limit": 50,
+      "offset": 0,
+      "has_more": false
+    }
+  },
+  "warnings": [
+    {
+      "code": "CROSS_NODE_FILTER_UNRESOLVED",
+      "severity": "warning",
+      "message": "Unresolved references exist for this field; summaries include resolved memberships only. The warning scope is vault-wide.",
+      "details": {
+        "relation": "work",
+        "field": "project",
+        "scope": "vault_rel_type"
+      }
+    }
+  ]
+}

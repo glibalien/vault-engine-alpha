@@ -1,0 +1,18 @@
+{
+  "schema": "project",
+  "rollups": [
+    "open_task_count",
+    "next_due_date"
+  ],
+  "relations": [
+    {
+      "name": "tasks",
+      "fields": [
+        "status",
+        "due",
+        "label"
+      ],
+      "limit": 2
+    }
+  ]
+}

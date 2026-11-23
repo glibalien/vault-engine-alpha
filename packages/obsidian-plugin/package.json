@@ -1,0 +1,39 @@
+{
+  "name": "vault-obsidian",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Obsidian thin client for the Vault Engine MCP server.",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "npm run build -w @vault/contract -w @vault/settings-registry -w @vault/pricing -w @vault/query-core -w @vault/chat-core -w @vault/viz-ui -w @vault/board-core -w @vault/conversation-core -w @vault/chat-ui && tsc --noEmit && node esbuild.config.mjs --prod",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-sdk/react": "^4.0.40",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@vault/board-core": "^0.1.0",
+    "@vault/chat-core": "^0.1.0",
+    "@vault/chat-ui": "^0.1.0",
+    "@vault/conversation-core": "^0.1.0",
+    "@vault/pricing": "^0.1.0",
+    "@vault/query-core": "^0.1.0",
+    "@vault/settings-registry": "^0.1.0",
+    "@vault/viz-ui": "^0.1.0",
+    "ai": "^7.0.37",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "builtin-modules": "^5.0.0",
+    "esbuild": "^0.27.7",
+    "jsdom": "^26.0.0",
+    "obsidian": "^1.7.2",
+    "typescript": "^6.0.0",
+    "vitest": "^4.0.0"
+  }
+}

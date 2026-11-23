@@ -1,0 +1,442 @@
+{
+  "format_version": 2,
+  "analyzer_version": "2.1.0",
+  "source": {
+    "canonical_root": "<ROOT>",
+    "confirmed_type_field": "kind",
+    "source_fingerprint": "1e7333504716b416eb86f90ff89089bfcb5c460310d16321daa47f4ce434c9b2",
+    "exclusions": []
+  },
+  "inventory": {
+    "total_files": 11,
+    "markdown_files": 10,
+    "non_markdown_by_extension": {
+      ".txt": 1
+    },
+    "excluded_entries": {
+      "directories": 0,
+      "symlinks": 0
+    }
+  },
+  "coverage": {
+    "files_with_frontmatter": 10,
+    "typed_files": 8,
+    "untyped_files": 2,
+    "malformed_frontmatter_files": 1,
+    "usable_percentage": 80,
+    "typed_by_type_field": 8,
+    "typed_by_folder_rule": 0,
+    "typed_by_tag_rule": 0
+  },
+  "proposal": {
+    "type_field_mapping": {
+      "source": "kind",
+      "target": "types"
+    },
+    "type_assignment": {
+      "type_field_values": [
+        {
+          "value": "meeting",
+          "type": "meeting",
+          "documents": 2
+        },
+        {
+          "value": "person",
+          "type": "person",
+          "documents": 1
+        },
+        {
+          "value": "project",
+          "type": "project",
+          "documents": 6
+        }
+      ],
+      "folder_rules": [],
+      "tag_rules": [],
+      "type_renames": [],
+      "files": [
+        {
+          "path": "Broken.md",
+          "types": []
+        },
+        {
+          "path": "Meetings/Kickoff.md",
+          "types": [
+            "meeting"
+          ]
+        },
+        {
+          "path": "Mixed.md",
+          "types": [
+            "meeting",
+            "project"
+          ]
+        },
+        {
+          "path": "People/Alice.md",
+          "types": [
+            "person"
+          ]
+        },
+        {
+          "path": "Projects/Alpha.md",
+          "types": [
+            "project"
+          ]
+        },
+        {
+          "path": "Projects/Beta.md",
+          "types": [
+            "project"
+          ]
+        },
+        {
+          "path": "Projects/Delta.md",
+          "types": [
+            "project"
+          ]
+        },
+        {
+          "path": "Projects/Epsilon.md",
+          "types": [
+            "project"
+          ]
+        },
+        {
+          "path": "Projects/Gamma.md",
+          "types": [
+            "project"
+          ]
+        },
+        {
+          "path": "Untyped.md",
+          "types": []
+        }
+      ]
+    },
+    "global_fields": [
+      {
+        "name": "active",
+        "field_type": "boolean",
+        "required": false,
+        "status": "apply_ready",
+        "evidence": {
+          "observations": 8,
+          "null_or_missing": 7,
+          "distinct_values": 1,
+          "shape_distribution": {
+            "boolean": 1,
+            "null": 7
+          },
+          "sample_values": [
+            true
+          ],
+          "samples_truncated": false
+        }
+      },
+      {
+        "name": "date",
+        "field_type": "date",
+        "required": false,
+        "status": "apply_ready",
+        "evidence": {
+          "observations": 8,
+          "null_or_missing": 7,
+          "distinct_values": 1,
+          "shape_distribution": {
+            "date": 1,
+            "null": 7
+          },
+          "sample_values": [
+            "2026-08-30"
+          ],
+          "samples_truncated": false
+        }
+      },
+      {
+        "name": "owner",
+        "field_type": "reference",
+        "required": false,
+        "status": "apply_ready",
+        "evidence": {
+          "observations": 8,
+          "null_or_missing": 7,
+          "distinct_values": 1,
+          "shape_distribution": {
+            "null": 7,
+            "reference": 1
+          },
+          "sample_values": [
+            "[[Alice]]"
+          ],
+          "samples_truncated": false,
+          "reference": {
+            "resolved_targets": 1,
+            "unresolved_targets": 0,
+            "ambiguous_targets": 0,
+            "target_type_distribution": {
+              "person": 1
+            }
+          }
+        },
+        "reference_target": "person"
+      },
+      {
+        "name": "priority",
+        "field_type": "enum",
+        "enum_values": [
+          "high"
+        ],
+        "required": false,
+        "status": "apply_ready",
+        "evidence": {
+          "observations": 8,
+          "null_or_missing": 3,
+          "distinct_values": 1,
+          "shape_distribution": {
+            "null": 3,
+            "string": 5
+          },
+          "sample_values": [
+            "high"
+          ],
+          "samples_truncated": false
+        }
+      },
+      {
+        "name": "project",
+        "field_type": "reference",
+        "required": false,
+        "status": "apply_ready",
+        "evidence": {
+          "observations": 8,
+          "null_or_missing": 7,
+          "distinct_values": 1,
+          "shape_distribution": {
+            "null": 7,
+            "reference": 1
+          },
+          "sample_values": [
+            "[[Alpha]]"
+          ],
+          "samples_truncated": false,
+          "reference": {
+            "resolved_targets": 1,
+            "unresolved_targets": 0,
+            "ambiguous_targets": 0,
+            "target_type_distribution": {
+              "project": 1
+            }
+          }
+        },
+        "reference_target": "project"
+      },
+      {
+        "name": "stakeholders",
+        "field_type": "list",
+        "list_item_type": "reference",
+        "required": false,
+        "status": "apply_ready",
+        "evidence": {
+          "observations": 8,
+          "null_or_missing": 7,
+          "distinct_values": 1,
+          "shape_distribution": {
+            "list:reference": 1,
+            "null": 7
+          },
+          "sample_values": [
+            [
+              "[[Alice]]"
+            ]
+          ],
+          "samples_truncated": false,
+          "reference": {
+            "resolved_targets": 1,
+            "unresolved_targets": 0,
+            "ambiguous_targets": 0,
+            "target_type_distribution": {
+              "person": 1
+            }
+          }
+        },
+        "reference_target": "person"
+      },
+      {
+        "name": "status",
+        "field_type": "string",
+        "required": false,
+        "status": "apply_ready",
+        "evidence": {
+          "observations": 8,
+          "null_or_missing": 3,
+          "distinct_values": 2,
+          "shape_distribution": {
+            "null": 3,
+            "string": 5
+          },
+          "sample_values": [
+            "open",
+            "done"
+          ],
+          "samples_truncated": false
+        }
+      }
+    ],
+    "schemas": [
+      {
+        "name": "meeting",
+        "default_directory": "Meetings",
+        "field_claims": [
+          {
+            "field": "date",
+            "effective_required": false,
+            "evidence": {
+              "single_type_documents": 1,
+              "all_typed_documents": 1,
+              "coverage": 0.5
+            }
+          },
+          {
+            "field": "project",
+            "effective_required": false,
+            "evidence": {
+              "single_type_documents": 1,
+              "all_typed_documents": 1,
+              "coverage": 0.5
+            }
+          }
+        ],
+        "evidence": {
+          "typed_documents": 2,
+          "single_type_documents": 1,
+          "parent_directories": {
+            "Meetings": 1
+          }
+        }
+      },
+      {
+        "name": "person",
+        "default_directory": "People",
+        "field_claims": [
+          {
+            "field": "active",
+            "effective_required": false,
+            "evidence": {
+              "single_type_documents": 1,
+              "all_typed_documents": 1,
+              "coverage": 1
+            }
+          }
+        ],
+        "evidence": {
+          "typed_documents": 1,
+          "single_type_documents": 1,
+          "parent_directories": {
+            "People": 1
+          }
+        }
+      },
+      {
+        "name": "project",
+        "default_directory": "Projects",
+        "field_claims": [
+          {
+            "field": "owner",
+            "effective_required": false,
+            "evidence": {
+              "single_type_documents": 1,
+              "all_typed_documents": 1,
+              "coverage": 0.16666666666666666
+            }
+          },
+          {
+            "field": "priority",
+            "effective_required": false,
+            "evidence": {
+              "single_type_documents": 5,
+              "all_typed_documents": 5,
+              "coverage": 0.8333333333333334
+            }
+          },
+          {
+            "field": "status",
+            "effective_required": false,
+            "evidence": {
+              "single_type_documents": 5,
+              "all_typed_documents": 5,
+              "coverage": 0.8333333333333334
+            }
+          }
+        ],
+        "evidence": {
+          "typed_documents": 6,
+          "single_type_documents": 5,
+          "parent_directories": {
+            "Projects": 5
+          }
+        }
+      }
+    ]
+  },
+  "needs_review": {
+    "ambiguous_fields": [],
+    "ambiguous_claims": [
+      {
+        "field": "stakeholders",
+        "candidate_types": [
+          "meeting",
+          "project"
+        ],
+        "multi_type_documents": 1,
+        "status": "needs_review"
+      }
+    ],
+    "type_name_collisions": []
+  },
+  "tags": {
+    "candidates": [],
+    "truncated": false
+  },
+  "issues": [
+    {
+      "code": "CLAIM_OWNERSHIP_AMBIGUOUS",
+      "count": 1,
+      "examples": [
+        {
+          "field": "stakeholders",
+          "message": "Field occurs only on multi-type documents: meeting, project"
+        }
+      ],
+      "truncated": false
+    },
+    {
+      "code": "FRONTMATTER_MALFORMED",
+      "count": 1,
+      "examples": [
+        {
+          "path": "Broken.md",
+          "message": "Flow sequence in block collection must be sufficiently indented and end with a ] at line 1, column 8:\n\nkind: [\n       ^\n"
+        }
+      ],
+      "truncated": false
+    },
+    {
+      "code": "TYPE_KEY_INCOMPLETE_COVERAGE",
+      "count": 2,
+      "examples": [
+        {
+          "path": "Broken.md",
+          "field": "kind",
+          "message": "File has no usable value for the confirmed type field"
+        },
+        {
+          "path": "Untyped.md",
+          "field": "kind",
+          "message": "File has no usable value for the confirmed type field"
+        }
+      ],
+      "truncated": false
+    }
+  ]
+}

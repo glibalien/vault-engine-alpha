@@ -1,0 +1,135 @@
+# packages/engine/bench/golden-conceptual.yaml
+# Hand-authored conceptual queries whose intent is NOT title-derivable.
+# Reference targets by note title; unresolved titles fail the benchmark.
+# The cases below are made-up examples of each flavor: their titles resolve against no vault.
+# To benchmark a vault, write its cases to golden-conceptual.local.yaml beside this file: it
+# is untracked, and the bench scripts use it when it exists.
+# Five flavors, on purpose, because semantic/extraction weighting is a tradeoff:
+#   - precision cases: a clear single answer FTS/title can find, where semantic noise tends to
+#     outrank it. Down-weighting semantic should HELP these.
+#   - topical/recall cases: reworded/abstract queries where semantic is how you find the answer.
+#     Down-weighting semantic must NOT hurt these.
+#   - attachment_noise cases: a canonical person/project/design note should beat an
+#     attachment-backed node whose many extraction chunks swamp the ranking.
+#   - field_recall cases: the target is identified by frontmatter/alias text that
+#     title/body-only FTS cannot see.
+#   - canonical cases (finding #7): a canonical note must outrank its generated wiki
+#     page / import duplicates. Measured hit@1-style — the canonical should be rank 1.
+cases:
+  # --- precision: specific identifier -> one note ---
+  - query: timezone offsets
+    expected_titles: [Atlas - Timezone Offsets]
+    note: precision — specific timezone-offset implementation note
+    group: precision
+  - query: reader role permissions design
+    expected_titles: [Atlas - Reader-Role Permissions Design Spec]
+    note: precision — specific permissions design
+    group: precision
+  - query: wider supplier list design
+    expected_titles: [Atlas - Wider Supplier List Design 2026-07-23]
+    note: precision — specific supplier-list design
+    group: precision
+  - query: splitting scanned invoices
+    expected_titles: [Atlas — Splitting and Reading Scanned Invoices Spec]
+    note: precision — specific invoice design
+    group: precision
+  - query: order history merge
+    expected_titles: [Order History Merge — Design Spec]
+    note: precision — specific order-history design
+    group: precision
+  - query: label printer small fixes
+    expected_titles: [Label printer small fixes — Design Spec]
+    note: precision — specific label-printer design
+    group: precision
+  - query: stock table app rebuild implementation
+    expected_titles: [Stock-table App rebuild — Implementation Plan]
+    note: precision — specific app implementation plan
+    group: precision
+  - query: staff rota levels design
+    expected_titles: [Staff Rota Levels — Design 2026-07-03]
+    note: precision — specific rota design
+    group: precision
+  - query: route planning nearest depot
+    expected_titles: [Route Planning — Nearest Depot Round 1 spec]
+    note: precision — specific route-planning design
+    group: precision
+  - query: delivery backlog evening catch-up
+    expected_titles: ['Atlas - Delivery Backlog Evening Catch-Up Plan 2026-06-13']
+    note: precision — specific plan
+    group: precision
+  - query: saving drafts while typing in the order form
+    expected_titles: [Order Form Drafts + Tab Recovery]
+    note: precision — precise order-form note should not be swamped by many semantic chunks
+    group: precision
+  # --- attachment_noise: canonical note/person should beat attachment-backed semantic noise ---
+  - query: Northwind Insights AI
+    expected_titles: [Northwind]
+    note: attachment_noise — canonical company note should beat extraction-backed competitors
+    group: attachment_noise
+  - query: atlas shelf photo report
+    expected_titles: [Atlas - Shelf Photo Report Implementation Plan]
+    note: attachment_noise — implementation plan should beat extracted photo-report material
+    group: attachment_noise
+  - query: shelf photo roundup
+    expected_titles: [Weekly Shelf Photo Roundup — Atlas]
+    note: attachment_noise — canonical roundup should beat extraction-backed material
+    group: attachment_noise
+  # --- field_recall: node findable only via frontmatter/alias surface (finding #4a) ---
+  - query: staff onboarding project
+    expected_titles: [Staff Onboarding]
+    note: field_recall — project field should surface the onboarding note
+    group: field_recall
+  - query: Fleet Operations
+    expected_titles: [Larkspur]
+    note: field_recall — frontmatter company description should surface the canonical note
+    group: field_recall
+  - query: Northwind Insights Inc.
+    expected_titles: [Northwind]
+    note: field_recall — alias should surface the canonical company note
+    group: field_recall
+  - query: formerly Tidewater
+    expected_titles: [Calloway]
+    note: field_recall — former-name alias should surface the canonical company note
+    group: field_recall
+  # --- topical/recall: reworded -> thematic answer ---
+  - query: redesign the order form visual look and feel
+    expected_titles: [Order form v2 — plain-paper redesign]
+    note: topical — semantic should find it
+    group: topical
+  - query: self-running stock counter redesign
+    expected_titles: [Stock Counter V2 — Rework Notes]
+    note: topical — semantic should find it
+    group: topical
+  - query: how should we make the stock counter run more on its own
+    expected_titles: [Stock Counter V2 — Rework Notes]
+    note: topical — conversational filler around canonical stock-counter note
+    group: topical
+  - query: workshop on writing a product brief
+    expected_titles: [Writing a Product Brief]
+    note: topical — semantic should find it
+    group: topical
+  - query: improving delivery time estimates
+    expected_titles: [Delivery estimate improvements]
+    note: topical — semantic should find it
+    group: topical
+  - query: what did we decide about improving delivery estimates
+    expected_titles: [Delivery estimate improvements]
+    note: topical — conversational filler around delivery-estimate note
+    group: topical
+  - query: ideas for making the order form feel calmer and cleaner
+    expected_titles: [Order form v2 — plain-paper redesign]
+    note: topical — conversational filler around order-form redesign note
+    group: topical
+  # --- canonical: the canonical note must outrank its generated wiki / duplicates (finding #7) ---
+  - query: order desk form launch plan
+    expected_titles: [Order Desk - Atlas Form Launch Plan 2026-06-12]
+    note: canonical — launch plan must beat generated or imported material
+    group: canonical
+  - query: order form plain paper redesign
+    expected_titles: [Order form v2 — plain-paper redesign]
+    note: canonical — redesign note must beat generated wiki material
+    group: canonical
+  - query: weekly shelf photo roundup
+    expected_titles: [Weekly Shelf Photo Roundup — Atlas]
+    note: canonical — roundup note must beat generated wiki material
+    group: canonical

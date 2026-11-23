@@ -1,0 +1,52 @@
+import {expect,it} from 'vitest';
+import {classificationDb} from '../helpers/classification-fixture.js';
+import {inputDefinitionHash,previewEnumGroupChange} from '../../src/classification/preview.js';
+import {loadClassificationInput} from '../../src/classification/read.js';
+import {createSchemaDefinition} from '../../src/schema/crud.js';
+import {globalClassificationHash} from '../../src/classification/definitions.js';
+import {getGlobalField} from '../../src/global-fields/crud.js';
+it('counts changed memberships without writes and rejects stale guards',()=>{
+ const db=classificationDb();const before=db.prepare('SELECT * FROM global_fields').all();
+ const input={enum_groups:{version:1 as const,groups:[{name:'active',values:['finished']}]},expected_enum_groups_hash:globalClassificationHash(getGlobalField(db,'status')!)};
+ const preview=previewEnumGroupChange(db,{field:'status',input});
+ expect(preview.evaluated_node_context_pairs).toBe(9);
+ expect(preview.changed_node_context_pairs).toBe(5);
+ expect(db.prepare('SELECT * FROM global_fields').all()).toEqual(before);
+ expect(()=>previewEnumGroupChange(db,{field:'status',input:{...input,expected_enum_groups_hash:'stale'}})).toThrow(/changed|stale/i);
+ expect(preview.affected_contexts).toHaveLength(2);db.close();
+});
+it('rejects referenced group removal and reports bounded examples with exact counts',()=>{
+ const db=classificationDb();
+ const guard=globalClassificationHash(getGlobalField(db,'status')!);
+ db.prepare("UPDATE schemas SET metadata=? WHERE name='project'").run(JSON.stringify({relationship_views_v1:{version:1,rollups:[{name:'active',filter:{fields:{status:{in_group:{schema:'task',group:'active'}}}}}]}}));
+ expect(()=>previewEnumGroupChange(db,{field:'status',input:{enum_groups:{version:1,groups:[]},expected_enum_groups_hash:guard}})).toThrow(/reference/i);
+ db.prepare("UPDATE schemas SET metadata=NULL").run();
+ db.transaction(()=>{for(let i=0;i<100;i++){db.prepare('INSERT INTO nodes(id,file_path) VALUES(?,?)').run(`x${i}`,`x${i}.md`);db.prepare("INSERT INTO node_types(node_id,schema_type) VALUES(?,'task')").run(`x${i}`);db.prepare("INSERT INTO node_fields(node_id,field_name,value_text) VALUES(?,'status','ready')").run(`x${i}`);}})();
+ const p=previewEnumGroupChange(db,{field:'status',input:{enum_groups:{version:1,groups:[]},expected_enum_groups_hash:guard}});
+ expect(p.changed_node_context_pairs).toBe(105);expect(p.examples).toHaveLength(50);expect(p.examples_truncated).toBe(true);db.close();
+});
+it('allows exactly 100,000 node/context pairs and rejects larger previews atomically',()=>{
+ const db=classificationDb();const guard=globalClassificationHash(getGlobalField(db,'status')!);
+ db.exec("WITH RECURSIVE seq(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM seq WHERE x<99991) INSERT INTO nodes(id,file_path) SELECT 'cap-'||x,'cap-'||x||'.md' FROM seq;");
+ db.exec("INSERT INTO node_types(node_id,schema_type) SELECT id,'task' FROM nodes WHERE id LIKE 'cap-%';");
+ const input={enum_groups:{version:1 as const,groups:[]},expected_enum_groups_hash:guard};
+ expect(previewEnumGroupChange(db,{field:'status',input}).evaluated_node_context_pairs).toBe(100000);
+ db.exec("INSERT INTO nodes(id,file_path) VALUES('over','over.md'); INSERT INTO node_types(node_id,schema_type) VALUES('over','task');");
+ expect(()=>previewEnumGroupChange(db,{field:'status',input})).toThrow(/100,000/);
+ expect(globalClassificationHash(getGlobalField(db,'status')!)).toBe(guard);db.close();
+},10000);
+it('hashes an activated inherited claim differently from its absent baseline and keeps unchanged contexts stable',()=>{
+ const db=classificationDb();const global=globalClassificationHash(getGlobalField(db,'status')!);
+ createSchemaDefinition(db,{name:'ticket',field_claims:[]});
+ db.prepare("INSERT INTO node_types(node_id,schema_type) VALUES('A','ticket')").run();
+ const p=previewEnumGroupChange(db,{schema:'ticket',field:'status',input:{field:'status',expected_global_enum_groups_hash:global}});
+ expect(p.changed_node_context_pairs).toBe(1);
+ expect(p.counts).toEqual([{context:{schema:'ticket',field:'status'},before:{not_configured:1},after:{'group:active':1}}]);
+ expect(p.definition_changes).toHaveLength(1);
+ expect(p.definition_changes[0].before).not.toBe(p.definition_changes[0].after);
+ expect(()=>previewEnumGroupChange(db,{schema:'ticket',field:'status',input:{field:'status',expected_global_enum_groups_hash:'stale'}})).toThrow(/changed|stale/i);
+ const current=inputDefinitionHash(loadClassificationInput(db,{schema:'task',field:'status'}));
+ const unchanged=previewEnumGroupChange(db,{schema:'task',field:'status',input:{field:'status',expected_global_enum_groups_hash:global,expected_enum_groups_hash:current}});
+ expect(unchanged.definition_changes).toEqual([{context:{schema:'task',field:'status'},before:current,after:current}]);
+ expect(unchanged.changed_node_context_pairs).toBe(0);db.close();
+});

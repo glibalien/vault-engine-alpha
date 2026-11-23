@@ -1,0 +1,33 @@
+{
+  "name": "vault-installer",
+  "version": "0.1.0",
+  "description": "Terminal installer that sets up Vault Engine and Vault Curator for a folder of Markdown",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "MIT",
+  "bin": {
+    "vault-installer": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "installer": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@vault/pricing": "^0.1.0",
+    "@vault/settings-registry": "^0.1.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^6.0.0",
+    "vitest": "^4.0.0"
+  }
+}

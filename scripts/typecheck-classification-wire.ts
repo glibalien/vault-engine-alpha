@@ -1,0 +1,10 @@
+import type { ClassifyNodesInput as EI, ClassifyNodesResult as ER } from '../packages/engine/src/classification/read.js';
+import type { EnumGroupsV1 as ED, EffectiveEnumGroups as EE } from '../packages/engine/src/classification/types.js';
+import type { ClassifyNodesInput as QI, ClassifyNodesResult as QR, EnumGroupsV1 as QD, EffectiveEnumGroups as QE } from '../packages/query-core/src/classification-types.js';
+import type { ClassifyNodesInput as CI, ClassifyNodesResult as CR, EnumGroupsV1 as CD, EffectiveEnumGroups as CE } from '../packages/curator/src/classification-types.js';
+type Assert<T extends true> = T;
+type Equal<A,B> = [A] extends [B] ? [B] extends [A] ? true : false : false;
+type Inputs = Assert<Equal<EI,QI>>; type CuratorInputs = Assert<Equal<EI,CI>>;
+type Results = Assert<Equal<ER,QR>>; type CuratorResults = Assert<Equal<ER,CR>>;
+type Definitions = Assert<Equal<ED,QD>>; type CuratorDefinitions = Assert<Equal<ED,CD>>;
+type Effective = Assert<Equal<EE,QE>>; type CuratorEffective = Assert<Equal<EE,CE>>;

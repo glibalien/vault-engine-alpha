@@ -1,0 +1,11 @@
+{
+  "schema": "project",
+  "rollups": [
+    "completion",
+    "overdue"
+  ],
+  "evaluation_context": {
+    "time_zone": "America/New_York",
+    "as_of": "2026-09-19T16:00:00Z"
+  }
+}

@@ -1,0 +1,386 @@
+@import '@vault/viz-ui/styles.css';
+@import '@vault/chat-ui/styles.css';
+
+/* Obsidian's default <button> chrome (box-shadow + background) makes the inline
+   viz-ref name/reference links render as raised "extruded" buttons. The base
+   .viz-ref zeroes border/padding but not box-shadow/background, so reset them
+   here so those names read as plain links (kanban/list card titles, table refs). */
+button.viz-ref {
+  box-shadow: none !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  height: auto !important;
+}
+
+/* Token-bridge: map @vault/viz-ui's design tokens to Obsidian theme variables
+   so the viz card adopts the user's Obsidian theme (light/dark/accent). */
+.workspace-leaf-content[data-type='vault-engine-view'],
+.workspace-leaf-content[data-type='vault-chat-view'],
+.workspace-leaf-content[data-type='vault-board-view'] {
+  --bg: var(--background-primary);
+  --editor-bg: var(--background-primary);
+  --panel: var(--background-primary);
+  --panel-2: var(--background-secondary);
+  --elevated: var(--background-primary-alt, var(--background-primary));
+  --hover: var(--background-modifier-hover);
+  --active: var(--background-modifier-active-hover, var(--background-modifier-hover));
+  /* Bases variables first, so a theme that restyles Bases restyles board views too. */
+  --border: var(--bases-table-border-color, var(--background-modifier-border));
+  --border-2: var(--background-modifier-border);
+  --border-strong: var(--background-modifier-border-hover, var(--background-modifier-border));
+  --text: var(--text-normal);
+  --text-dim: var(--bases-table-header-color, var(--text-muted));
+  /* --text-faint intentionally NOT redefined: viz `var(--text-faint)` inherits Obsidian's own. */
+  --text-ghost: var(--text-faint);
+  --accent: var(--interactive-accent);
+  --accent-bright: var(--interactive-accent-hover);
+  --accent-ink: var(--text-on-accent);
+  --accent-dim: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.16);
+  --accent-line: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.36);
+  --link: var(--text-accent);
+  --danger: var(--text-error);
+  --font-ui: var(--font-interface);
+  --font-mono: var(--font-monospace);
+  --r-sm: var(--radius-s);
+  --r-md: var(--radius-m);
+  --r-lg: var(--radius-l);
+  --r-xl: var(--radius-l);
+  --ease: cubic-bezier(.32, .72, 0, 1);
+  --fast: .15s var(--ease);
+  --med: .26s var(--ease);
+  /* status dots — keep viz constants (Obsidian has no direct equivalents) */
+  --st-todo: #8a90a0; --st-progress: #c79a4a; --st-blocked: #d07a66; --st-done: #5fa07d;
+  --shadow-lg: var(--shadow-l, 0 24px 64px -18px rgba(0,0,0,.5));
+  --shadow-card: var(--shadow-s, 0 1px 2px rgba(0,0,0,.22));
+}
+
+/* ─── Plugin-own view styles (engine leaf + chat leaf).
+   These were the plugin's hand-written styles.css before the build began
+   generating styles.css; they must live here so esbuild bundles them. ─── */
+.ve-root { padding: var(--size-4-2); }
+.ve-loading, .ve-empty, .ve-error { padding: var(--size-4-3); color: var(--text-muted); }
+.ve-error { color: var(--text-error); }
+.ve-stats { font-size: var(--font-ui-smaller); color: var(--text-muted); margin-bottom: var(--size-4-2); }
+.ve-table { width: 100%; border-collapse: collapse; font-size: var(--font-ui-small); }
+.ve-table th, .ve-table td { text-align: left; padding: var(--size-4-1) var(--size-4-2); border-bottom: 1px solid var(--background-modifier-border); }
+.ve-table th { color: var(--text-muted); font-weight: var(--font-medium); }
+
+/* Vault Chat (plugin chat leaf) */
+/* Pane = full-height flex column so the header bars + composer stay pinned and only the message
+   list scrolls (the conversation switcher, board-context bar, and chat input never scroll away). */
+.vc-pane { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.vc-pane > .vc-conv, .vc-pane > .ctx-bar-wrap { flex: 0 0 auto; }
+.vc-pane > .vc-root { flex: 1 1 auto; min-height: 0; }
+.vc-root { display: flex; flex-direction: column; min-height: 0; }
+.vc-messages { flex: 1; min-height: 0; overflow-y: auto; padding: var(--size-4-3); display: flex; flex-direction: column; gap: var(--size-4-3); }
+.vc-msg { display: flex; flex-direction: column; gap: var(--size-4-1); }
+.vc-msg-user .vc-text { align-self: flex-end; background: var(--background-modifier-hover); border-radius: var(--radius-m); padding: var(--size-4-1) var(--size-4-2); }
+.vc-text { white-space: pre-wrap; }
+.vc-tool { font-size: var(--font-ui-smaller); color: var(--text-muted); border-left: 2px solid var(--background-modifier-border); padding-left: var(--size-4-2); }
+.vc-tool-io { white-space: pre-wrap; overflow-x: auto; max-height: 12em; background: var(--background-secondary); padding: var(--size-4-1); border-radius: var(--radius-s); }
+.vc-error { color: var(--text-error); padding: var(--size-4-3); }
+.vc-thinking { display: flex; align-items: center; gap: var(--size-4-2); padding: var(--size-4-2) var(--size-4-3); color: var(--text-muted); font-size: var(--font-ui-small); }
+
+/* ─── Vault Boards (board leaf) ───
+   Header row: the board switcher, follow and actions. Below it, the selected board's views as
+   tabs, then the open view, which brings its own Bases-style toolbar (@vault/viz-ui).
+   Everything reads Obsidian's theme variables via the token bridge above. */
+.vb-root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.workspace-leaf-content[data-type='vault-board-view'] > .view-content { padding: 0; }
+
+.vb-header {
+  position: relative; /* anchor for the ⋯ menu */
+  display: flex; align-items: center; gap: 2px; flex-shrink: 0;
+  min-height: 40px; padding: 0 var(--size-4-2) 0 var(--size-4-2); box-sizing: border-box;
+}
+.vb-board-wrap { position: relative; display: inline-flex; min-width: 0; flex: 0 1 auto; }
+.vb-board-btn {
+  display: inline-flex; align-items: center; gap: 7px; min-width: 0; height: 30px; padding: 0 8px;
+  border: 0; border-radius: var(--radius-m); background: transparent; box-shadow: none;
+  color: var(--text-normal); font-size: var(--font-ui-small); font-weight: var(--font-semibold, 600);
+  white-space: nowrap; cursor: pointer;
+}
+.vb-board-btn:hover, .vb-board-btn[aria-expanded="true"] { background: var(--background-modifier-hover); }
+.vb-board-btn svg { width: 16px; height: 16px; flex: none; color: var(--text-muted); }
+.vb-board-btn .vb-board-caret { width: 14px; height: 14px; color: var(--text-faint); }
+.vb-board-btn.is-empty { color: var(--text-muted); font-weight: var(--font-normal, 400); }
+.vb-board-btn.is-off-note .vb-board-name { font-style: italic; }
+.vb-board-name { overflow: hidden; text-overflow: ellipsis; }
+.vb-board-menu { left: 0; right: auto; top: calc(100% + 4px); margin-top: 0; max-width: min(22em, 90vw); }
+.vb-board-item.is-off-note .vb-menu-label { font-style: italic; }
+.vb-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.vb-menu > button .vb-menu-check { width: 14px; height: 14px; color: var(--text-accent); }
+.vb-menu-empty { padding: 4px 8px 6px; font-size: var(--font-ui-smaller); color: var(--text-faint); }
+
+/* The selected board's views. */
+.vb-tabbar {
+  display: flex; align-items: center; gap: 2px; flex-shrink: 0; min-height: 36px;
+  padding: 0 var(--size-4-2) 4px; box-sizing: border-box;
+}
+.vb-tabs {
+  display: flex; align-items: center; gap: 2px; min-width: 0; flex: 0 1 auto;
+  overflow-x: auto; scrollbar-width: none;
+}
+.vb-tabs::-webkit-scrollbar { display: none; }
+.vb-tab {
+  display: inline-flex; align-items: center; flex: none; max-width: 220px; height: 28px;
+  border-radius: var(--radius-m); color: var(--text-muted);
+}
+.vb-tab:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.vb-tab.is-active { background: var(--background-modifier-hover); color: var(--text-normal); }
+.vb-tab-btn {
+  display: inline-flex; align-items: center; gap: 7px; min-width: 0; height: 28px; padding: 0 4px 0 10px;
+  border: 0; border-radius: var(--radius-m); background: transparent; box-shadow: none;
+  color: inherit; font-size: var(--font-ui-small); font-weight: var(--font-normal, 400);
+  white-space: nowrap; cursor: pointer;
+}
+.vb-tab.is-active .vb-tab-btn { font-weight: var(--font-medium, 500); }
+.vb-tab-btn svg { width: 15px; height: 15px; flex: none; color: var(--text-faint); }
+.vb-tab.is-active .vb-tab-btn svg { color: var(--text-normal); }
+.vb-tab-label { overflow: hidden; text-overflow: ellipsis; }
+/* The close × shows on the open tab and on hover, Obsidian-tab style. */
+.vb-tab-close {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 20px; height: 20px; margin-right: 4px; padding: 0; border: 0; border-radius: var(--radius-s);
+  background: transparent; box-shadow: none; color: var(--text-faint); cursor: pointer; opacity: 0;
+}
+.vb-tab-close svg { width: 13px; height: 13px; }
+.vb-tab:hover .vb-tab-close, .vb-tab.is-active .vb-tab-close, .vb-tab-close:focus-visible { opacity: 1; }
+.vb-tab-close:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.vb-tab.is-renaming { padding: 0 2px; }
+.vb-tab-input {
+  width: 12em; height: 24px; padding: 0 6px; font-size: var(--font-ui-small);
+  border: 1px solid var(--interactive-accent); border-radius: var(--radius-s);
+  background: var(--background-primary); color: var(--text-normal);
+}
+.vb-header-spacer { flex: 1 1 auto; }
+
+.vb-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-s);
+  background: transparent; box-shadow: none; color: var(--text-muted); cursor: pointer;
+}
+.vb-icon-btn svg { width: 16px; height: 16px; }
+.vb-icon-btn:hover, .vb-icon-btn.on, .vb-icon-btn[aria-expanded="true"] { background: var(--background-modifier-hover); color: var(--text-normal); }
+/* The follow eye recolors accent when following — consistent with chat-ui's .ctx-follow.on. */
+.vb-follow.on { color: var(--text-accent); }
+.vb-plus-wrap { position: relative; display: inline-flex; flex: none; }
+
+.vb-menu {
+  position: absolute; right: var(--size-4-2); top: 100%; z-index: 30; margin-top: 2px;
+  display: flex; flex-direction: column; min-width: 15em; padding: 4px;
+  background: var(--background-primary); border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m); box-shadow: var(--shadow-s);
+}
+.vb-plus-menu { left: 0; right: auto; top: calc(100% + 4px); margin-top: 0; }
+.vb-plus-menu.is-right { left: auto; right: 0; } /* near the pane's right edge: open leftward */
+.vb-menu > button {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px;
+  text-align: left; background: none; border: none; box-shadow: none; cursor: pointer;
+  border-radius: var(--radius-s); color: var(--text-normal); font-size: var(--font-ui-small); white-space: nowrap;
+}
+.vb-menu > button svg { width: 16px; height: 16px; flex: none; color: var(--text-muted); }
+.vb-menu > button:hover { background: var(--background-modifier-hover); }
+.vb-menu > .vb-menu-delete { color: var(--text-error); }
+.vb-menu > .vb-menu-delete svg { color: var(--text-error); }
+.vb-menu-title { padding: 6px 8px 2px; font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.vb-menu-sep { height: 1px; margin: 4px 0; background: var(--background-modifier-border); }
+
+/* Background must stay a faint tint of the SAME hue as the --text-warning text —
+   themes paint --background-modifier-error-hover saturated red, which made the
+   amber text unreadable. color-mix derives the tint; rgba is the fallback. */
+.vb-frozen-banner {
+  flex-shrink: 0; padding: var(--size-4-1) var(--size-4-3);
+  font-size: var(--font-ui-smaller); color: var(--text-warning);
+  background: rgba(200, 150, 40, 0.12);
+  background: color-mix(in srgb, var(--text-warning) 12%, transparent);
+}
+
+/* The open view fills the rest of the pane. */
+.vb-view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; border-top: 1px solid var(--background-modifier-border); }
+.vb-view > .viz--pane { flex: 1 1 auto; min-height: 0; }
+.vb-view > .viz--pane > .viz-toolbar { border-top: 0; }
+/* Non-query views (overview, usage, one note) go flush, their head
+   restyled as the same 40px toolbar row the query views use. */
+.vb-view > .vz-statscard, .vb-view > .vz-nodecard, .vb-view > .vz-spendcard {
+  border: 0; border-radius: 0; box-shadow: none; background: var(--background-primary); padding: 0 0 var(--size-4-3);
+}
+.vb-view .vz-card-head {
+  min-height: 40px; padding: 0 var(--size-4-3); margin-bottom: var(--size-4-3); box-sizing: border-box;
+  border-bottom: 1px solid var(--background-modifier-border); gap: 2px;
+}
+.vb-view .vz-card-title { font-size: var(--font-ui-small); font-weight: var(--font-medium, 500); }
+.vb-view .vz-card-refresh {
+  width: 28px; height: 28px; border-radius: var(--radius-s); color: var(--text-muted); opacity: 1;
+}
+.vb-view .vz-card-refresh:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.vb-view .vz-stat-grid, .vb-view .vz-spend-table, .vb-view .vz-nodecard-chips, .vb-view .vz-nodecard-fields,
+.vb-view .vz-nodecard-body, .vb-view .vz-card-error, .vb-view .vz-spend-foot,
+.vb-view .vz-spend-range-label, .vb-view .vz-spend-notes, .vb-view .vz-spend-trend { margin-left: var(--size-4-3); margin-right: var(--size-4-3); }
+.vb-view .vz-stat-grid {
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0; margin-top: 0;
+  border-top: 1px solid var(--background-modifier-border); border-left: 1px solid var(--background-modifier-border);
+}
+.vb-view .vz-stat {
+  gap: 4px; padding: 12px 14px; border-radius: 0; background: transparent;
+  border-right: 1px solid var(--background-modifier-border); border-bottom: 1px solid var(--background-modifier-border);
+}
+.vb-view .vz-stat b { order: 2; font-size: 1.5em; font-weight: var(--font-medium, 500); }
+.vb-view .vz-stat span { order: 1; font-size: var(--font-ui-smaller); color: var(--text-muted); opacity: 1; }
+
+
+/* Empty states: a layout chooser in the Bases toolbar idiom. */
+.vb-empty { display: flex; flex-direction: column; align-items: center; gap: var(--size-4-3); padding: var(--size-4-8) var(--size-4-4); color: var(--text-muted); text-align: center; }
+.vb-empty-msg { font-size: var(--font-ui-small); }
+.vb-empty-actions { display: flex; gap: var(--size-4-2); flex-wrap: wrap; justify-content: center; }
+.vb-chooser { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--size-4-2); max-width: 520px; }
+.vb-chooser-btn {
+  display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px;
+  border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m);
+  background: var(--background-primary); box-shadow: none; color: var(--text-normal);
+  font-size: var(--font-ui-small); cursor: pointer;
+}
+.vb-chooser-btn svg { width: 16px; height: 16px; color: var(--text-muted); }
+.vb-chooser-btn:hover { background: var(--background-modifier-hover); }
+
+/* Fallback body for a view whose spec fails parseBoardCardSpec (unknown/malformed kind) —
+   visible so a broken view is never silently blank. */
+.vb-card-unrecognized { color: var(--text-muted); font-style: italic; padding: var(--size-4-3); }
+
+/* Board header inline inputs (create / rename) */
+.vb-new-input,
+.vb-rename-input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-small);
+  padding: var(--size-4-1) var(--size-4-2);
+  border: 1px solid var(--interactive-accent);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+.vb-header > button:not(.vb-icon-btn) { flex: none; margin-left: var(--size-4-1); }
+
+/* Inline delete confirm affordance */
+.vb-delete-label { flex: 1; font-size: var(--font-ui-small); color: var(--text-muted); white-space: nowrap; }
+.vb-delete-confirm { color: var(--text-error) !important; font-weight: var(--font-medium); }
+
+/* Error banner */
+.vb-error {
+  flex-shrink: 0;
+  padding: var(--size-4-2) var(--size-4-3);
+  background: var(--background-modifier-error);
+  color: var(--text-error);
+  font-size: var(--font-ui-small);
+}
+
+/* Board composer (spec 2026-07-25): a slim row under the tabs, opened by the view's sparkles
+   button (tweak this view) or "+ → Describe a view…" (new tab). */
+.vb-composer { flex-shrink: 0; padding: var(--size-4-2) var(--size-4-3) 0; }
+.vb-composer-row {
+  display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 4px 0 6px; box-sizing: border-box;
+  border: 1px solid var(--interactive-accent); border-radius: var(--radius-m);
+  box-shadow: 0 0 0 3px hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.15);
+  background: var(--background-primary);
+}
+.vb-composer-tool { flex: 0 0 auto; font-size: var(--font-ui-smaller); }
+.vb-composer-scope {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 10px;
+  background-color: var(--background-modifier-hover);
+  font-size: var(--font-ui-smaller); white-space: nowrap; max-width: 12em; overflow: hidden; text-overflow: ellipsis;
+}
+.vb-composer-scope button { border: none; background-color: transparent; box-shadow: none; cursor: pointer; padding: 0 2px; }
+.vb-composer-input {
+  flex: 1 1 auto; min-width: 0; border: 0 !important; box-shadow: none !important; background: transparent !important; outline: none;
+  font-size: var(--font-ui-small);
+}
+.vb-composer-revert, .vb-composer-close { flex: 0 0 auto; }
+.vb-composer-send {
+  flex: 0 0 auto; height: 28px; padding: 0 12px; border-radius: var(--radius-s);
+  background: var(--interactive-accent) !important; color: var(--text-on-accent) !important;
+}
+.vb-composer-close { width: 28px; height: 28px; padding: 0; border: 0; background: transparent; box-shadow: none; color: var(--text-muted); cursor: pointer; }
+.vb-composer-spinner {
+  display: inline-block; width: 0.9em; height: 0.9em;
+  border: 2px solid var(--background-modifier-border); border-top-color: var(--text-accent);
+  border-radius: 50%; animation: vb-composer-spin 0.8s linear infinite;
+}
+@keyframes vb-composer-spin { to { transform: rotate(360deg); } }
+.vb-composer-error { margin-top: 4px; color: var(--text-error); font-size: var(--font-ui-smaller); }
+.vb-composer-status { padding: 4px 4px 0; font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.vb-board-undo {
+  display: flex; align-items: center; gap: var(--size-4-2); flex-shrink: 0;
+  padding: var(--size-4-1) var(--size-4-3); font-size: var(--font-ui-smaller); color: var(--text-muted);
+}
+.vb-board-undo-msg { flex: 1 1 auto; min-width: 0; }
+.vb-board-undo-btn {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.vb-board-undo-dismiss {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--radius-s);
+  background: transparent; box-shadow: none; color: var(--text-faint); cursor: pointer;
+}
+.vb-board-undo-dismiss svg { width: 13px; height: 13px; }
+.vb-board-undo-dismiss:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.vb-board-undo-dismiss:disabled { opacity: 0.5; cursor: default; }
+
+/* --- VE Search modal --- */
+.ve-search-item { display: flex; flex-direction: column; gap: 2px; }
+.ve-search-title { display: flex; align-items: center; gap: 6px; }
+.ve-search-icon { display: inline-flex; color: var(--text-muted); }
+.ve-search-snip {
+  color: var(--text-muted);
+  font-size: var(--font-smaller, 0.85em);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.ve-search-snip mark { background: transparent; color: var(--text-accent); font-weight: 600; padding: 0; }
+.ve-search-meta {
+  display: flex;
+  gap: 8px;
+  font-size: var(--font-smaller, 0.8em);
+  color: var(--text-faint);
+}
+.ve-search-score { margin-left: auto; }
+
+/* Discover/Manage models modal — two-line remote rows (display name + detail). */
+.ve-model-item { display: flex; flex-direction: column; gap: 2px; }
+.ve-model-title { display: flex; align-items: center; gap: 6px; }
+.ve-model-detail {
+  font-size: var(--font-smaller, 0.8em);
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Wiki preview presentation only: existing Markdown and action nodes stay intact. */
+.ve-wiki-section-heading {
+  margin-block: 1.4em 0.55em;
+  color: var(--text-normal);
+  font-size: var(--h2-size, 1.4em);
+  font-weight: var(--h2-weight, 600);
+  line-height: var(--h2-line-height, 1.3);
+}
+p.ve-wiki-retained-action {
+  margin-block: 0.75em;
+  padding: 0.7em 1em;
+  border-inline-start: 3px solid var(--interactive-accent, currentColor);
+  border-radius: var(--radius-s, 4px);
+  background-color: var(--background-secondary);
+  color: var(--text-normal);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}

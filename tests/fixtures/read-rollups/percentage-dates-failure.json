@@ -1,0 +1,9 @@
+{
+  "ok": false,
+  "error": {
+    "code": "INVALID_PARAMS",
+    "message": "Relative-date predicates require evaluation_context.time_zone.",
+    "details": {}
+  },
+  "warnings": []
+}

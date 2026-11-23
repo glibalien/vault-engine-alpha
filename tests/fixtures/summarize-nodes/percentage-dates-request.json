@@ -1,0 +1,37 @@
+{
+  "evaluation_context": {
+    "time_zone": "America/New_York",
+    "as_of": "2026-09-19T16:00:00Z"
+  },
+  "relations": [
+    {
+      "as": "work",
+      "direction": "incoming",
+      "field": "project",
+      "filter": {
+        "fields": {
+          "status": {
+            "one_of": [
+              "done",
+              "open",
+              "in-progress"
+            ]
+          }
+        }
+      },
+      "metrics": [
+        {
+          "as": "completion",
+          "op": "percentage",
+          "matching_filter": {
+            "fields": {
+              "status": {
+                "eq": "done"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

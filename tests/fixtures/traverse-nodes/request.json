@@ -1,0 +1,11 @@
+{
+  "root_id": "A",
+  "field": "blockedBy",
+  "direction": "outgoing",
+  "max_depth": 1,
+  "include_fields": [
+    "status",
+    "due",
+    "label"
+  ]
+}

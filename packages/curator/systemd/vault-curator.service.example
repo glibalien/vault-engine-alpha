@@ -1,0 +1,29 @@
+# /etc/systemd/system/vault-curator.service
+# Long-lived curator MCP server (Track 3 step 3). Owns its own daily sweep
+# schedule + the on-demand curate-project-wiki tool. Replaces the old oneshot
+# service + vault-curator.timer (now retired — see vault-curator.timer.example).
+[Unit]
+Description=Vault Curator — long-lived MCP server + scheduler
+After=network-online.target vault-engine-new.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/path/to/vault-curator
+Environment=NODE_ENV=production
+EnvironmentFile=/path/to/vault-curator/.env
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=5
+# On SIGTERM the Curator lets a running curation, an on-demand build (#292) or the
+# nightly sweep finish for up to 5 minutes, logging what it waits on every 30s. Then
+# it refuses new model calls, so the work stops at its next call and records a skip,
+# and waits up to 2 more minutes for a call already in flight. Anything still running
+# is recorded as interrupted and the Curator exits (#405). Keep this above 7 minutes
+# so the exit is the Curator's, not a SIGKILL (#294).
+TimeoutStopSec=600
+# Build first: npm run build
+
+[Install]
+WantedBy=multi-user.target

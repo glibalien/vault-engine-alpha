@@ -1,0 +1,29 @@
+{
+  "name": "@vault/bench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Model-orchestration benchmark: replays recorded VEfO chat turns against candidate models in a sandboxed engine. Never imported by other packages.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.e2e.json",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "bench": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@vault/chat-core": "^0.1.0",
+    "@vault/contract": "^0.1.0",
+    "@vault/pricing": "^0.1.0",
+    "@vault/settings-registry": "^0.1.0",
+    "ai": "^7.0.37",
+    "better-sqlite3": "^12.8.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^6.0.0",
+    "vitest": "^4.0.0"
+  }
+}

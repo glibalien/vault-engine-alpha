@@ -1,0 +1,634 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import Database from 'better-sqlite3';
+import { createSchema } from '../../src/db/schema.js';
+import { addUndoTables, addUiHints } from '../../src/db/migrate.js';
+import { executeMutation } from '../../src/pipeline/execute.js';
+import { WriteLockManager } from '../../src/sync/write-lock.js';
+import { createGlobalField } from '../../src/global-fields/crud.js';
+import { createSchemaDefinition } from '../../src/schema/crud.js';
+import { registerCreateNode } from '../../src/mcp/tools/create-node.js';
+import { registerUpdateNode } from '../../src/mcp/tools/update-node.js';
+import { createTempVault } from '../helpers/vault.js';
+import { checkTitleSafety, checkBodyFrontmatter, sanitizeFilename } from '../../src/mcp/tools/title-warnings.js';
+
+describe('checkTitleSafety', () => {
+  it('returns no issues for clean titles', () => {
+    expect(checkTitleSafety('My Normal Title')).toEqual([]);
+  });
+
+  it('flags parentheses', () => {
+    const issues = checkTitleSafety('Something (with parens)');
+    expect(issues).toHaveLength(1);
+    expect(issues[0].code).toBe('TITLE_WIKILINK_UNSAFE');
+    expect(issues[0].characters).toContain('(');
+    expect(issues[0].characters).toContain(')');
+  });
+
+  it('flags brackets', () => {
+    const issues = checkTitleSafety('Has [brackets]');
+    expect(issues[0].characters).toContain('[');
+    expect(issues[0].characters).toContain(']');
+  });
+
+  it('flags hash and caret (Obsidian header/block anchors)', () => {
+    const issues = checkTitleSafety('A # C ^ D');
+    expect(issues[0].characters).toEqual(expect.arrayContaining(['#', '^']));
+  });
+
+  it('flags pipe — it is BOTH a wikilink alias delimiter and filename-reserved', () => {
+    // Pipe is the one char in both WIKILINK_UNSAFE and FILENAME_UNSAFE.
+    // Filename sanitization (A | B -> A - B.md) does not save the reference
+    // rewrite: rewriteBodyWikiLinks emits the raw title, so refs become
+    // [[A | B]], which the parser reads as target "A" + alias "B". Neither
+    // title-tier resolution nor near-miss recovery can rejoin it (the pipe is
+    // consumed as the alias delimiter before normalizeRefKey ever sees it), so
+    // the warning is the only signal the caller gets.
+    const issues = checkTitleSafety('A | B');
+    expect(issues).toHaveLength(1);
+    expect(issues[0].code).toBe('TITLE_WIKILINK_UNSAFE');
+    expect(issues[0].characters).toContain('|');
+  });
+
+  it('returns empty for titles with safe special chars like dashes and apostrophes', () => {
+    expect(checkTitleSafety("It's a well-formed — title")).toEqual([]);
+  });
+});
+
+describe('sanitizeFilename', () => {
+  it('passes clean filenames through unchanged', () => {
+    const result = sanitizeFilename('My Normal Title');
+    expect(result.filename).toBe('My Normal Title');
+    expect(result.sanitized).toBe(false);
+    expect(result.characters).toEqual([]);
+  });
+
+  it('replaces forward slash with hyphen', () => {
+    const result = sanitizeFilename('30/60/90 Plan');
+    expect(result.filename).toBe('30-60-90 Plan');
+    expect(result.sanitized).toBe(true);
+    expect(result.characters).toContain('/');
+  });
+
+  it('replaces colon with hyphen', () => {
+    const result = sanitizeFilename('Meeting: Kickoff');
+    expect(result.filename).toBe('Meeting- Kickoff');
+    expect(result.sanitized).toBe(true);
+    expect(result.characters).toContain(':');
+  });
+
+  it('replaces all Windows-reserved characters', () => {
+    const result = sanitizeFilename('a:b*c?d"e<f>g|h');
+    expect(result.filename).toBe('a-b-c-d-e-f-g-h');
+    expect(result.sanitized).toBe(true);
+    expect(result.characters).toEqual(expect.arrayContaining([':', '*', '?', '"', '<', '>', '|']));
+  });
+
+  it('replaces backslash with hyphen', () => {
+    const result = sanitizeFilename('a\\b\\c');
+    expect(result.filename).toBe('a-b-c');
+    expect(result.sanitized).toBe(true);
+    expect(result.characters).toContain('\\');
+  });
+
+  it('reports both slash and backslash when present', () => {
+    const result = sanitizeFilename('a/b\\c');
+    expect(result.filename).toBe('a-b-c');
+    expect(result.sanitized).toBe(true);
+    expect(result.characters).toEqual(expect.arrayContaining(['/', '\\']));
+  });
+});
+
+describe('checkBodyFrontmatter', () => {
+  it('returns no issue for normal body', () => {
+    expect(checkBodyFrontmatter('Just some text')).toEqual([]);
+  });
+
+  it('returns no issue for empty body', () => {
+    expect(checkBodyFrontmatter('')).toEqual([]);
+  });
+
+  it('flags body starting with frontmatter delimiter', () => {
+    const issues = checkBodyFrontmatter('---\ntitle: oops\n---\nBody text');
+    expect(issues).toHaveLength(1);
+    expect(issues[0].code).toBe('FRONTMATTER_IN_BODY');
+  });
+
+  it('does not flag horizontal rules mid-body', () => {
+    expect(checkBodyFrontmatter('Some text\n\n---\n\nMore text')).toEqual([]);
+  });
+});
+
+describe('update-node rename and move surface', () => {
+  let vaultPath: string;
+  let cleanupVault: () => void;
+  let db: Database.Database;
+  let writeLock: WriteLockManager;
+  let handler: (args: Record<string, unknown>) => Promise<unknown>;
+
+  function parseResult(result: unknown): Record<string, unknown> {
+    const r = result as { content: Array<{ type: string; text: string }> };
+    return JSON.parse(r.content[0].text);
+  }
+
+  function captureHandler() {
+    let captured: (args: Record<string, unknown>) => Promise<unknown>;
+    const fakeServer = {
+      tool: (_name: string, _desc: string, _schema: unknown, h: (...args: unknown[]) => unknown) => {
+        captured = (args) => h(args) as Promise<unknown>;
+      },
+    } as unknown as McpServer;
+    registerUpdateNode(fakeServer, db, writeLock, vaultPath);
+    return captured!;
+  }
+
+  function createNode(fp: string, title: string, opts: { types?: string[]; fields?: Record<string, unknown>; body?: string } = {}) {
+    return executeMutation(db, writeLock, vaultPath, {
+      source: 'tool', node_id: null, file_path: fp, title,
+      types: opts.types ?? [], fields: opts.fields ?? {}, body: opts.body ?? '',
+    });
+  }
+
+  beforeEach(() => {
+    ({ vaultPath, cleanup: cleanupVault } = createTempVault());
+    db = new Database(':memory:');
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    createSchema(db);
+    addUndoTables(db);
+    addUiHints(db);
+    writeLock = new WriteLockManager();
+    handler = captureHandler();
+  });
+
+  afterEach(() => {
+    db.close();
+    cleanupVault();
+  });
+
+  it('rejects directory ending in .md', async () => {
+    const node = createNode('Notes/old.md', 'old');
+    const body = parseResult(await handler({
+      node_id: node.node_id,
+      set_title: 'new',
+      set_directory: 'Notes/new.md',
+    })) as any;
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe('INVALID_PARAMS');
+    expect(body.error.message).toMatch(/directory.*must be a folder/i);
+  });
+
+  it('accepts directory param and derives file path from title', async () => {
+    const node = createNode('Notes/old.md', 'old');
+    const body = parseResult(await handler({
+      node_id: node.node_id,
+      set_title: 'Renamed',
+      set_directory: 'Archive',
+    })) as any;
+    expect(body.ok).toBe(true);
+    expect(body.data.file_path).toBe('Archive/Renamed.md');
+    expect(existsSync(join(vaultPath, 'Archive/Renamed.md'))).toBe(true);
+  });
+
+  it('keeps the current directory on a retitle even when the schema has a default_directory', async () => {
+    createGlobalField(db, { name: 'status', field_type: 'string' });
+    createSchemaDefinition(db, { name: 'task', default_directory: 'Tasks', field_claims: [{ field: 'status' }] });
+    const node = createNode('Projects/Alpha/old-task.md', 'old-task', { types: ['task'] });
+
+    const body = parseResult(await handler({
+      node_id: node.node_id,
+      set_title: 'New Task',
+    })) as any;
+    expect(body.ok).toBe(true);
+    expect(body.data.file_path).toBe('Projects/Alpha/New Task.md');
+    expect(body.warnings).toEqual([]);
+  });
+
+  it('keeps current directory when no schema and no directory param', async () => {
+    const node = createNode('Somewhere/old.md', 'old');
+    const body = parseResult(await handler({
+      node_id: node.node_id,
+      set_title: 'Renamed',
+    })) as any;
+    expect(body.ok).toBe(true);
+    expect(body.data.file_path).toBe('Somewhere/Renamed.md');
+    expect(body.warnings).toEqual([]);
+  });
+
+  it('includes title safety warnings in response', async () => {
+    const node = createNode('Notes/old.md', 'old');
+    const body = parseResult(await handler({
+      node_id: node.node_id,
+      set_title: 'Something (with parens)',
+    })) as any;
+    expect(body.ok).toBe(true);
+    expect(body.data.file_path).toBe('Notes/Something (with parens).md');
+    const warnings = body.warnings as Array<{ code: string; severity: string; details?: { characters?: string[] } }>;
+    const unsafe = warnings.find(w => w.code === 'TITLE_WIKILINK_UNSAFE');
+    expect(unsafe).toBeDefined();
+    expect(unsafe!.severity).toBe('warning');
+    expect(unsafe!.details?.characters).toEqual(expect.arrayContaining(['(', ')']));
+  });
+
+  it('sanitizes slashes in set_title to keep file flat', async () => {
+    const node = createNode('Notes/old.md', 'old');
+    const body = parseResult(await handler({
+      node_id: node.node_id,
+      set_title: '30/60/90 Plan',
+    })) as any;
+    expect(body.ok).toBe(true);
+    expect(body.data.file_path).toBe('Notes/30-60-90 Plan.md');
+    // The stored title is the filename's, so links written from it resolve by filename.
+    expect(body.data.title).toBe('30-60-90 Plan');
+    expect(existsSync(join(vaultPath, 'Notes/30-60-90 Plan.md'))).toBe(true);
+    expect(existsSync(join(vaultPath, 'Notes/30'))).toBe(false);
+    const warnings = body.warnings as Array<{ code: string; details?: { characters?: string[] } }>;
+    const sanitized = warnings.find(w => w.code === 'TITLE_FILENAME_SANITIZED');
+    expect(sanitized).toBeDefined();
+    expect(sanitized!.details?.characters).toContain('/');
+  });
+});
+
+describe('create-node surface tightening', () => {
+  let vaultPath: string;
+  let cleanupVault: () => void;
+  let db: Database.Database;
+  let writeLock: WriteLockManager;
+  let handler: (args: Record<string, unknown>) => Promise<unknown>;
+
+  function parseResult(result: unknown): Record<string, unknown> {
+    const r = result as { content: Array<{ type: string; text: string }> };
+    return JSON.parse(r.content[0].text);
+  }
+
+  function captureHandler() {
+    let captured: (args: Record<string, unknown>) => Promise<unknown>;
+    const fakeServer = {
+      tool: (_name: string, _desc: string, _schema: unknown, h: (...args: unknown[]) => unknown) => {
+        captured = (args) => h(args) as Promise<unknown>;
+      },
+    } as unknown as McpServer;
+    registerCreateNode(fakeServer, db, writeLock, vaultPath);
+    return captured!;
+  }
+
+  beforeEach(() => {
+    ({ vaultPath, cleanup: cleanupVault } = createTempVault());
+    db = new Database(':memory:');
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    createSchema(db);
+    addUndoTables(db);
+    addUiHints(db);
+    writeLock = new WriteLockManager();
+    handler = captureHandler();
+  });
+
+  afterEach(() => {
+    db.close();
+    cleanupVault();
+  });
+
+  it('rejects directory ending in .md', async () => {
+    const result = parseResult(await handler({
+      title: 'Test',
+      types: [],
+      directory: 'Notes/test.md',
+    })) as any;
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('INVALID_PARAMS');
+    expect(result.error.message).toMatch(/directory.*must be a folder/i);
+  });
+
+  it('uses schema default_directory when no directory param', async () => {
+    createGlobalField(db, { name: 'status', field_type: 'string' });
+    createSchemaDefinition(db, { name: 'task', default_directory: 'Tasks', field_claims: [{ field: 'status' }] });
+    const result = parseResult(await handler({
+      title: 'My Task',
+      types: ['task'],
+    })) as any;
+    expect(result.ok).toBe(true);
+    expect(result.data.file_path).toBe('Tasks/My Task.md');
+  });
+
+  it('rejects directory override when schema has default_directory and override flag is missing', async () => {
+    createGlobalField(db, { name: 'status', field_type: 'string' });
+    createSchemaDefinition(db, { name: 'task', default_directory: 'Tasks', field_claims: [{ field: 'status' }] });
+    const result = parseResult(await handler({
+      title: 'My Task',
+      types: ['task'],
+      directory: 'Elsewhere',
+    })) as any;
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('INVALID_PARAMS');
+    expect(result.error.message).toMatch(/override_default_directory/);
+  });
+
+  it('allows directory override when override_default_directory is true', async () => {
+    createGlobalField(db, { name: 'status', field_type: 'string' });
+    createSchemaDefinition(db, { name: 'task', default_directory: 'Tasks', field_claims: [{ field: 'status' }] });
+    const result = parseResult(await handler({
+      title: 'My Task',
+      types: ['task'],
+      directory: 'Elsewhere',
+      override_default_directory: true,
+    })) as any;
+    expect(result.ok).toBe(true);
+    expect(result.data.file_path).toBe('Elsewhere/My Task.md');
+  });
+
+  it('allows directory on schema-less nodes without override flag', async () => {
+    const result = parseResult(await handler({
+      title: 'Loose Note',
+      types: [],
+      directory: 'Scratch',
+    })) as any;
+    expect(result.ok).toBe(true);
+    expect(result.data.file_path).toBe('Scratch/Loose Note.md');
+  });
+
+  it('includes title safety warning in response', async () => {
+    const result = parseResult(await handler({
+      title: 'Something (bad)',
+      types: [],
+    })) as any;
+    expect(result.ok).toBe(true);
+    expect(result.data.file_path).toBe('Something (bad).md');
+    const warnings = result.warnings as Array<{ code: string }>;
+    expect(warnings.some(w => w.code === 'TITLE_WIKILINK_UNSAFE')).toBe(true);
+  });
+
+  it('includes frontmatter-in-body warning in response', async () => {
+    const result = parseResult(await handler({
+      title: 'Test Note',
+      types: [],
+      body: '---\ntitle: oops\n---\nContent',
+    })) as any;
+    expect(result.ok).toBe(true);
+    expect(result.data.node_id).toBeDefined();
+    const warnings = result.warnings as Array<{ code: string }>;
+    expect(warnings.some(w => w.code === 'FRONTMATTER_IN_BODY')).toBe(true);
+  });
+
+  it('sanitizes forward slashes in title to keep file flat', async () => {
+    const result = parseResult(await handler({
+      title: 'Example Manager — 30/60/90 for Jordan',
+      types: [],
+      directory: 'Notes',
+    })) as any;
+    expect(result.ok).toBe(true);
+    expect(result.data.file_path).toBe('Notes/Example Manager — 30-60-90 for Jordan.md');
+    // The stored title is the filename's, so links written from it resolve by filename.
+    expect(result.data.title).toBe('Example Manager — 30-60-90 for Jordan');
+    expect(existsSync(join(vaultPath, 'Notes/Example Manager — 30-60-90 for Jordan.md'))).toBe(true);
+    expect(existsSync(join(vaultPath, 'Notes/Example Manager — 30'))).toBe(false);
+    const warnings = result.warnings as Array<{ code: string; details?: { characters?: string[] } }>;
+    const sanitized = warnings.find(w => w.code === 'TITLE_FILENAME_SANITIZED');
+    expect(sanitized).toBeDefined();
+    expect(sanitized!.details?.characters).toContain('/');
+  });
+
+  it('dry-run reports sanitized file_path and warning', async () => {
+    const result = parseResult(await handler({
+      title: 'A/B Test',
+      types: [],
+      directory: 'Notes',
+      dry_run: true,
+    })) as any;
+    expect(result.ok).toBe(true);
+    expect(result.data.would_create.file_path).toBe('Notes/A-B Test.md');
+    const warnings = result.warnings as Array<{ code: string }>;
+    expect(warnings.some(w => w.code === 'TITLE_FILENAME_SANITIZED')).toBe(true);
+  });
+});
+
+describe('update-node set_title renames file', () => {
+  let vaultPath: string;
+  let cleanupVault: () => void;
+  let db: Database.Database;
+  let writeLock: WriteLockManager;
+  let handler: (args: Record<string, unknown>) => Promise<unknown>;
+
+  function parseResult(result: unknown): Record<string, unknown> {
+    const r = result as { content: Array<{ type: string; text: string }> };
+    return JSON.parse(r.content[0].text);
+  }
+
+  function captureHandler() {
+    let captured: (args: Record<string, unknown>) => Promise<unknown>;
+    const fakeServer = {
+      tool: (_name: string, _desc: string, _schema: unknown, h: (...args: unknown[]) => unknown) => {
+        captured = (args) => h(args) as Promise<unknown>;
+      },
+    } as unknown as McpServer;
+    registerUpdateNode(fakeServer, db, writeLock, vaultPath);
+    return captured!;
+  }
+
+  function createNode(fp: string, title: string, opts: { types?: string[]; fields?: Record<string, unknown>; body?: string } = {}) {
+    return executeMutation(db, writeLock, vaultPath, {
+      source: 'tool', node_id: null, file_path: fp, title,
+      types: opts.types ?? [], fields: opts.fields ?? {}, body: opts.body ?? '',
+    });
+  }
+
+  beforeEach(() => {
+    ({ vaultPath, cleanup: cleanupVault } = createTempVault());
+    db = new Database(':memory:');
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    createSchema(db);
+    addUndoTables(db);
+    addUiHints(db);
+    writeLock = new WriteLockManager();
+    handler = captureHandler();
+  });
+
+  afterEach(() => {
+    db.close();
+    cleanupVault();
+  });
+
+  it('set_title renames the file on disk', async () => {
+    const node = createNode('Notes/Original.md', 'Original');
+    const body = parseResult(await handler({
+      node_id: node.node_id,
+      set_title: 'Renamed',
+    }));
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.file_path).toBe('Notes/Renamed.md');
+    expect(existsSync(join(vaultPath, 'Notes/Renamed.md'))).toBe(true);
+    expect(existsSync(join(vaultPath, 'Notes/Original.md'))).toBe(false);
+  });
+
+  it('set_title updates wiki-link references', async () => {
+    createGlobalField(db, { name: 'project', field_type: 'reference' });
+    createSchemaDefinition(db, { name: 'task', field_claims: [{ field: 'project' }] });
+
+    const target = createNode('Notes/Old Name.md', 'Old Name');
+    createNode('Notes/Referencing.md', 'Referencing', {
+      types: ['task'],
+      fields: { project: 'Old Name' },
+      body: 'See [[Old Name]] for details.',
+    });
+
+    await handler({
+      node_id: target.node_id,
+      set_title: 'New Name',
+    });
+
+    const refFields = db.prepare('SELECT value_text FROM node_fields WHERE node_id = (SELECT id FROM nodes WHERE title = ?) AND field_name = ?')
+      .get('Referencing', 'project') as { value_text: string };
+    expect(refFields.value_text).toBe('New Name');
+  });
+
+  it('set_title returns conflict error when target path exists', async () => {
+    createNode('Notes/A.md', 'A');
+    createNode('Notes/B.md', 'B');
+    const body = parseResult(await handler({
+      title: 'A',
+      set_title: 'B',
+    }));
+    expect(body.ok).toBe(false);
+    const error = body.error as { code: string; message: string };
+    expect(error.code).toBe('CONFLICT');
+  });
+
+  it('set_title with same title is a no-op', async () => {
+    const node = createNode('Notes/Same.md', 'Same');
+    const body = parseResult(await handler({
+      node_id: node.node_id,
+      set_title: 'Same',
+    }));
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.file_path).toBe('Notes/Same.md');
+  });
+
+  it('set_title sanitizes slashes in title to keep file flat', async () => {
+    const node = createNode('Notes/Old.md', 'Old');
+    const body = parseResult(await handler({
+      node_id: node.node_id,
+      set_title: 'A/B Test',
+    }));
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.file_path).toBe('Notes/A-B Test.md');
+    // The stored title is the filename's, so links written from it resolve by filename.
+    expect(data.title).toBe('A-B Test');
+    expect(existsSync(join(vaultPath, 'Notes/A-B Test.md'))).toBe(true);
+    expect(existsSync(join(vaultPath, 'Notes/A'))).toBe(false);
+    const warnings = body.warnings as Array<{ code: string; details?: { characters?: string[] } }>;
+    const sanitized = warnings.find(w => w.code === 'TITLE_FILENAME_SANITIZED');
+    expect(sanitized).toBeDefined();
+    expect(sanitized!.details?.characters).toContain('/');
+  });
+
+  it('set_title dry-run reports sanitized file_path and warning', async () => {
+    const node = createNode('Notes/Old.md', 'Old');
+    const body = parseResult(await handler({
+      node_id: node.node_id,
+      set_title: '30/60/90 Plan',
+      dry_run: true,
+    }));
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    const preview = data.preview as Record<string, unknown>;
+    expect(preview.file_path).toBe('Notes/30-60-90 Plan.md');
+    const warnings = body.warnings as Array<{ code: string }>;
+    expect(warnings.some(w => w.code === 'TITLE_FILENAME_SANITIZED')).toBe(true);
+  });
+
+  it('set_title includes title safety warnings', async () => {
+    const node = createNode('Notes/Old.md', 'Old');
+    const body = parseResult(await handler({
+      node_id: node.node_id,
+      set_title: 'New (with parens)',
+    }));
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.file_path).toBe('Notes/New (with parens).md');
+    const warnings = body.warnings as Array<{ code: string }>;
+    expect(warnings.some(i => i.code === 'TITLE_WIKILINK_UNSAFE')).toBe(true);
+  });
+});
+
+describe('update-node query mode set_directory', () => {
+  let vaultPath: string;
+  let cleanupVault: () => void;
+  let db: Database.Database;
+  let writeLock: WriteLockManager;
+  let handler: (args: Record<string, unknown>) => Promise<unknown>;
+
+  function parseResult(result: unknown): Record<string, unknown> {
+    const r = result as { content: Array<{ type: string; text: string }> };
+    return JSON.parse(r.content[0].text);
+  }
+
+  function captureHandler() {
+    let captured: (args: Record<string, unknown>) => Promise<unknown>;
+    const fakeServer = {
+      tool: (_name: string, _desc: string, _schema: unknown, h: (...args: unknown[]) => unknown) => {
+        captured = (args) => h(args) as Promise<unknown>;
+      },
+    } as unknown as McpServer;
+    registerUpdateNode(fakeServer, db, writeLock, vaultPath);
+    return captured!;
+  }
+
+  function createNode(fp: string, title: string, opts: { types?: string[]; fields?: Record<string, unknown>; body?: string } = {}) {
+    return executeMutation(db, writeLock, vaultPath, {
+      source: 'tool', node_id: null, file_path: fp, title,
+      types: opts.types ?? [], fields: opts.fields ?? {}, body: opts.body ?? '',
+    });
+  }
+
+  beforeEach(() => {
+    ({ vaultPath, cleanup: cleanupVault } = createTempVault());
+    db = new Database(':memory:');
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    createSchema(db);
+    addUndoTables(db);
+    addUiHints(db);
+    writeLock = new WriteLockManager();
+    handler = captureHandler();
+  });
+
+  afterEach(() => {
+    db.close();
+    cleanupVault();
+  });
+
+  it('rejects set_directory ending in .md', async () => {
+    const body = parseResult(await handler({
+      query: { types: ['task'] },
+      set_directory: 'Archive/foo.md',
+      dry_run: true,
+    }));
+    expect(body.ok).toBe(false);
+    const error = body.error as { code: string; message: string };
+    expect(error.code).toBe('INVALID_PARAMS');
+    expect(error.message).toMatch(/directory.*must be a folder/i);
+  });
+
+  it('set_directory moves files in query mode', async () => {
+    createGlobalField(db, { name: 'status', field_type: 'string' });
+    createSchemaDefinition(db, { name: 'task', field_claims: [{ field: 'status' }] });
+    createNode('Tasks/A.md', 'A', { types: ['task'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['task'] },
+      set_directory: 'Archive',
+      dry_run: false,
+      confirm_large_batch: true,
+    }));
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.updated).toBe(1);
+    expect(existsSync(join(vaultPath, 'Archive/A.md'))).toBe(true);
+  });
+});

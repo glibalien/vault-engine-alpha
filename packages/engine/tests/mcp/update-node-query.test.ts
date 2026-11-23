@@ -1,0 +1,810 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { existsSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import Database from 'better-sqlite3';
+import { createSchema } from '../../src/db/schema.js';
+import { addUndoTables, addUiHints } from '../../src/db/migrate.js';
+import { executeMutation } from '../../src/pipeline/execute.js';
+import { WriteLockManager } from '../../src/sync/write-lock.js';
+import { createGlobalField } from '../../src/global-fields/crud.js';
+import { createSchemaDefinition } from '../../src/schema/crud.js';
+import { registerUpdateNode } from '../../src/mcp/tools/update-node.js';
+import { createTempVault } from '../helpers/vault.js';
+
+let vaultPath: string;
+let cleanup: () => void;
+let db: Database.Database;
+let writeLock: WriteLockManager;
+let handler: (args: Record<string, unknown>) => Promise<unknown>;
+
+function parseResult(result: unknown): Record<string, unknown> {
+  const r = result as { content: Array<{ type: string; text: string }> };
+  return JSON.parse(r.content[0].text);
+}
+
+function captureHandler() {
+  let capturedHandler: (args: Record<string, unknown>) => Promise<unknown>;
+  const fakeServer = {
+    tool: (_name: string, _desc: string, _schema: unknown, h: (...args: unknown[]) => unknown) => {
+      capturedHandler = (args) => h(args) as Promise<unknown>;
+    },
+  } as unknown as McpServer;
+  registerUpdateNode(fakeServer, db, writeLock, vaultPath);
+  return capturedHandler!;
+}
+
+function captureRegistration() {
+  let captured: { description: string; schema: Record<string, unknown> } | undefined;
+  const fakeServer = {
+    tool: (_name: string, desc: string, schema: Record<string, unknown>, _h: (...args: unknown[]) => unknown) => {
+      captured = { description: desc, schema };
+    },
+  } as unknown as McpServer;
+  registerUpdateNode(fakeServer, db, writeLock, vaultPath);
+  return captured!;
+}
+
+function createNode(overrides: {
+  file_path: string;
+  title: string;
+  types?: string[];
+  fields?: Record<string, unknown>;
+  body?: string;
+}) {
+  return executeMutation(db, writeLock, vaultPath, {
+    source: 'tool',
+    node_id: null,
+    file_path: overrides.file_path,
+    title: overrides.title,
+    types: overrides.types ?? [],
+    fields: overrides.fields ?? {},
+    body: overrides.body ?? '',
+  });
+}
+
+beforeEach(() => {
+  ({ vaultPath, cleanup } = createTempVault());
+  db = new Database(':memory:');
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  createSchema(db);
+  addUndoTables(db);
+  addUiHints(db);
+  writeLock = new WriteLockManager();
+
+  // Register schemas for all types used in tests
+  createSchemaDefinition(db, { name: 'note', field_claims: [] });
+  createSchemaDefinition(db, { name: 'task', field_claims: [] });
+  createSchemaDefinition(db, { name: 'clippings', field_claims: [] });
+  createSchemaDefinition(db, { name: 'person', field_claims: [] });
+  createSchemaDefinition(db, { name: 'tag', field_claims: [] });
+
+  handler = captureHandler();
+});
+
+afterEach(() => {
+  db.close();
+  cleanup();
+});
+
+describe('update-node metadata', () => {
+  it('advertises single-node set_directory and query exclusion filters', () => {
+    const registration = captureRegistration();
+    expect(registration.description).toContain('set_directory moves files to a target directory');
+    expect(registration.description).toContain('single-node mode');
+    expect(registration.description).toContain('without_node_ids');
+    expect(registration.description).toContain('without_titles');
+
+    const querySchema = registration.schema.query as { unwrap: () => { shape: Record<string, unknown> } };
+    const queryShape = querySchema.unwrap().shape;
+    expect(queryShape).toHaveProperty('node_ids');
+    expect(queryShape).toHaveProperty('without_node_ids');
+    expect(queryShape).toHaveProperty('title_eq');
+    expect(queryShape).toHaveProperty('title_contains');
+    expect(queryShape).toHaveProperty('without_titles');
+    expect(queryShape).toHaveProperty('without_title_contains');
+    expect(queryShape).toHaveProperty('created_since');
+  });
+});
+
+describe('update-node query mode — add_types', () => {
+  it('adds type to all matched nodes', async () => {
+    createNode({ file_path: 'a.md', title: 'A', types: ['note'] });
+    createNode({ file_path: 'b.md', title: 'B', types: ['note'] });
+    createNode({ file_path: 'c.md', title: 'C', types: ['task'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'] },
+      add_types: ['clippings'],
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.dry_run).toBe(false);
+    expect(data.matched).toBe(2);
+    expect(data.updated).toBe(2);
+    expect(data.skipped).toBe(0);
+
+    // Verify DB: both note nodes now have 'clippings' type
+    const types = db.prepare("SELECT DISTINCT schema_type FROM node_types WHERE schema_type = 'clippings'").all() as Array<{ schema_type: string }>;
+    expect(types.length).toBe(1);
+    const clippingsCount = (db.prepare("SELECT COUNT(*) as cnt FROM node_types WHERE schema_type = 'clippings'").get() as { cnt: number }).cnt;
+    expect(clippingsCount).toBe(2);
+  });
+
+  it('skips nodes that already have the type', async () => {
+    createNode({ file_path: 'a.md', title: 'A', types: ['note', 'clippings'] });
+    createNode({ file_path: 'b.md', title: 'B', types: ['note'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'] },
+      add_types: ['clippings'],
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.matched).toBe(2);
+    // Node A already has clippings, so it's a no-op
+    expect(data.updated).toBe(1);
+    expect(data.skipped).toBe(1);
+  });
+});
+
+describe('update-node query mode — remove_types', () => {
+  it('removes type from matched nodes', async () => {
+    createNode({ file_path: 'a.md', title: 'A', types: ['note', 'clippings'] });
+    createNode({ file_path: 'b.md', title: 'B', types: ['note', 'clippings'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'] },
+      remove_types: ['clippings'],
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.matched).toBe(2);
+    expect(data.updated).toBe(2);
+
+    // Verify clippings type removed
+    const clippingsCount = (db.prepare("SELECT COUNT(*) as cnt FROM node_types WHERE schema_type = 'clippings'").get() as { cnt: number }).cnt;
+    expect(clippingsCount).toBe(0);
+  });
+
+  it('returns the undo operation that holds the batch snapshots', async () => {
+    createNode({ file_path: 'a.md', title: 'A', types: ['note', 'clippings'] });
+    createNode({ file_path: 'b.md', title: 'B', types: ['note', 'clippings'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'] },
+      remove_types: ['clippings'],
+      dry_run: false,
+    }));
+
+    const operationId = (body.data as { operation_id?: string }).operation_id;
+    expect(operationId).toEqual(expect.any(String));
+    const snapshots = (db.prepare('SELECT COUNT(*) AS cnt FROM undo_snapshots WHERE operation_id = ?').get(operationId) as { cnt: number }).cnt;
+    expect(snapshots).toBe(2);
+  });
+});
+
+describe('update-node query mode — without_types filter + add_types', () => {
+  it('filters by without_types and adds type', async () => {
+    createNode({ file_path: 'a.md', title: 'A', types: ['note'] });
+    createNode({ file_path: 'b.md', title: 'B', types: ['note', 'clippings'] });
+    createNode({ file_path: 'c.md', title: 'C', types: ['note'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'], without_types: ['clippings'] },
+      add_types: ['clippings'],
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    // Only A and C matched (B has clippings, excluded by without_types)
+    expect(data.matched).toBe(2);
+    expect(data.updated).toBe(2);
+
+    // All three note nodes now have clippings
+    const clippingsCount = (db.prepare("SELECT COUNT(*) as cnt FROM node_types WHERE schema_type = 'clippings'").get() as { cnt: number }).cnt;
+    expect(clippingsCount).toBe(3);
+  });
+});
+
+describe('update-node query mode — dry_run', () => {
+  it.each([
+    { label: 'default', dry_run: undefined },
+    { label: 'explicit', dry_run: true },
+  ])('$label preview rejects a missing file for a changed node', async ({ dry_run }) => {
+    const created = createNode({ file_path: 'missing.md', title: 'Missing', types: ['note'] });
+    const absPath = join(vaultPath, 'missing.md');
+    unlinkSync(absPath);
+    const args: Record<string, unknown> = {
+      query: { node_ids: [created.node_id] },
+      add_types: ['clippings'],
+    };
+    if (dry_run !== undefined) args.dry_run = dry_run;
+
+    const body = parseResult(await handler(args));
+
+    expect(body.ok).toBe(false);
+    expect(body.error).toMatchObject({ code: 'CONTENT_HASH_MISMATCH' });
+    expect(existsSync(absPath)).toBe(false);
+    expect(db.prepare(
+      'SELECT schema_type FROM node_types WHERE node_id = ? ORDER BY sort_order',
+    ).all(created.node_id)).toEqual([{ schema_type: 'note' }]);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM undo_operations').get()).toEqual({ count: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM edits_log').get()).toEqual({ count: 0 });
+  });
+
+  it('skips a missing file when the matched query operation is a no-op', async () => {
+    const created = createNode({
+      file_path: 'missing-no-op.md',
+      title: 'Missing No-op',
+      types: ['note', 'clippings'],
+    });
+    const absPath = join(vaultPath, 'missing-no-op.md');
+    unlinkSync(absPath);
+
+    const body = parseResult(await handler({
+      query: { node_ids: [created.node_id] },
+      add_types: ['clippings'],
+      dry_run: true,
+    }));
+
+    expect(body.ok).toBe(true);
+    expect(body.data).toMatchObject({
+      dry_run: true,
+      matched: 1,
+      would_update: 0,
+      would_skip: 1,
+      would_fail: 0,
+      preview: [],
+    });
+    expect(existsSync(absPath)).toBe(false);
+  });
+
+  it('defaults dry_run to true in query mode (no changes made)', async () => {
+    createNode({ file_path: 'a.md', title: 'A', types: ['note'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'] },
+      add_types: ['clippings'],
+      // dry_run not specified — should default to true
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.dry_run).toBe(true);
+    expect(data.matched).toBe(1);
+    expect(data.would_update).toBe(1);
+
+    // Verify no actual change
+    const clippingsCount = (db.prepare("SELECT COUNT(*) as cnt FROM node_types WHERE schema_type = 'clippings'").get() as { cnt: number }).cnt;
+    expect(clippingsCount).toBe(0);
+  });
+
+  it('preview returns per-node diffs with types_added', async () => {
+    createNode({ file_path: 'a.md', title: 'A', types: ['note'] });
+    createNode({ file_path: 'b.md', title: 'B', types: ['note'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'] },
+      add_types: ['clippings'],
+      dry_run: true,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.dry_run).toBe(true);
+    expect(data.matched).toBe(2);
+    expect(data.would_update).toBe(2);
+    expect(data.would_skip).toBe(0);
+    expect(data.would_fail).toBe(0);
+    expect(data.batch_id).toBeTruthy();
+
+    const preview = data.preview as Array<{ node_id: string; file_path: string; title: string; changes: { types_added: string[]; types_removed: string[]; fields_set: Record<string, unknown>; would_fail: boolean } }>;
+    expect(preview.length).toBe(2);
+    for (const p of preview) {
+      expect(p.changes.types_added).toEqual(['clippings']);
+      expect(p.changes.types_removed).toEqual([]);
+      expect(p.changes.would_fail).toBe(false);
+    }
+  });
+});
+
+describe('update-node query mode — best-effort', () => {
+  it('continues past validation errors', async () => {
+    // Create a field with enum constraint
+    createGlobalField(db, { name: 'status', field_type: 'enum', enum_values: ['open', 'closed'], required: true });
+    createSchemaDefinition(db, { name: 'strict', field_claims: [{ field: 'status' }] });
+
+    // Create nodes: one strict (requires valid enum), one plain
+    createNode({ file_path: 'strict.md', title: 'Strict', types: ['strict'], fields: { status: 'open' } });
+    createNode({ file_path: 'plain.md', title: 'Plain', types: [] });
+
+    // Set status to invalid value across all nodes. The strict node will fail validation.
+    const body = parseResult(await handler({
+      query: {},
+      set_fields: { status: 'invalid-value' },
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    // We expect: strict node errors, plain node succeeds
+    expect(data.dry_run).toBe(false);
+    // matched includes all nodes in DB (including any from fixture vault)
+    const matched = data.matched as number;
+    expect(matched).toBeGreaterThanOrEqual(2);
+
+    const errors = data.errors as Array<{ node_id: string; file_path: string; error: string }>;
+    // At least the strict node should have errored
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    expect(errors.some(e => e.file_path === 'strict.md')).toBe(true);
+
+    // The non-strict node should have been updated despite the error on strict
+    const updated = data.updated as number;
+    expect(updated).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('update-node query mode — batch size guard', () => {
+  it('accepts confirm_large_batch param (guard logic)', async () => {
+    // We can't easily create >1000 nodes in a test, but we can verify
+    // the param is accepted and doesn't error when not needed
+    const body = parseResult(await handler({
+      query: { types: ['nonexistent'] },
+      add_types: ['tag'],
+      dry_run: false,
+      confirm_large_batch: true,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.matched).toBe(0);
+    expect(data.updated).toBe(0);
+  });
+});
+
+describe('update-node query mode — set_fields', () => {
+  // #649: a bulk write must not reach a folder whose name only matches as a LIKE pattern.
+  it('writes only the folder a path_prefix names, wildcard characters included', async () => {
+    createNode({ file_path: 'Export_A/One.md', title: 'One', types: [], fields: { color: 'red' } });
+    createNode({ file_path: 'ExportBA/Two.md', title: 'Two', types: [], fields: { color: 'red' } });
+
+    const preview = parseResult(await handler({ query: { path_prefix: 'Export_A/' }, set_fields: { color: 'blue' } }));
+    expect((preview.data as Record<string, unknown>).matched).toBe(1);
+
+    const body = parseResult(await handler({ query: { path_prefix: 'Export_A/' }, set_fields: { color: 'blue' }, dry_run: false }));
+    expect((body.data as Record<string, unknown>).updated).toBe(1);
+    const colour = (path: string): string => (db.prepare(
+      "SELECT value_text FROM node_fields WHERE field_name = 'color' AND node_id = (SELECT id FROM nodes WHERE file_path = ?)",
+    ).get(path) as { value_text: string }).value_text;
+    expect(colour('Export_A/One.md')).toBe('blue');
+    expect(colour('ExportBA/Two.md')).toBe('red');
+  });
+
+  it('patches fields with merge semantics', async () => {
+    createNode({ file_path: 'a.md', title: 'A', types: [], fields: { color: 'red', size: 'large' } });
+
+    const body = parseResult(await handler({
+      query: { path_prefix: 'a.md' },
+      set_fields: { color: 'blue', shape: 'round' },
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.updated).toBe(1);
+
+    // Verify DB: color changed, size preserved, shape added
+    const fields = db.prepare('SELECT field_name, value_text FROM node_fields WHERE node_id = (SELECT id FROM nodes WHERE file_path = ?)').all('a.md') as Array<{ field_name: string; value_text: string }>;
+    const fieldMap = Object.fromEntries(fields.map(f => [f.field_name, f.value_text]));
+    expect(fieldMap.color).toBe('blue');
+    expect(fieldMap.size).toBe('large');
+    expect(fieldMap.shape).toBe('round');
+  });
+
+  it('null removes a field', async () => {
+    createNode({ file_path: 'a.md', title: 'A', types: [], fields: { color: 'red', size: 'large' } });
+
+    const body = parseResult(await handler({
+      query: { path_prefix: 'a.md' },
+      set_fields: { color: null },
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.updated).toBe(1);
+
+    // Verify DB: color removed, size preserved
+    const fields = db.prepare('SELECT field_name FROM node_fields WHERE node_id = (SELECT id FROM nodes WHERE file_path = ?)').all('a.md') as Array<{ field_name: string }>;
+    const names = fields.map(f => f.field_name);
+    expect(names).not.toContain('color');
+    expect(names).toContain('size');
+  });
+});
+
+describe('update-node query mode — requires operation', () => {
+  it('errors when no operation provided', async () => {
+    const body = parseResult(await handler({
+      query: { types: ['note'] },
+    }));
+
+    expect(body.ok).toBe(false);
+    const error = body.error as { code: string; message: string };
+    expect(error.code).toBe('INVALID_PARAMS');
+    expect(error.message).toContain('requires at least one operation');
+  });
+});
+
+describe('update-node query mode — set_directory', () => {
+  it('moves a single node and combines set_directory with add_types', async () => {
+    createNode({ file_path: 'A.md', title: 'A', types: [] });
+
+    const body = parseResult(await handler({
+      title: 'A',
+      set_directory: 'Persons',
+      add_types: ['person'],
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.file_path).toBe('Persons/A.md');
+    expect(existsSync(join(vaultPath, 'Persons/A.md'))).toBe(true);
+    expect(existsSync(join(vaultPath, 'A.md'))).toBe(false);
+
+    const types = db.prepare("SELECT schema_type FROM node_types WHERE node_id = (SELECT id FROM nodes WHERE title = 'A')").all() as Array<{ schema_type: string }>;
+    expect(types.map(t => t.schema_type)).toContain('person');
+  });
+
+  it('dry-runs a single-node set_directory move', async () => {
+    createNode({ file_path: 'A.md', title: 'A', types: ['person'] });
+
+    const body = parseResult(await handler({
+      title: 'A',
+      set_directory: 'Persons',
+      dry_run: true,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as { dry_run: boolean; preview: { file_path: string } };
+    expect(data.dry_run).toBe(true);
+    expect(data.preview.file_path).toBe('Persons/A.md');
+    expect(existsSync(join(vaultPath, 'A.md'))).toBe(true);
+    expect(existsSync(join(vaultPath, 'Persons/A.md'))).toBe(false);
+  });
+
+  it('rejects single-node set_directory ending in .md', async () => {
+    createNode({ file_path: 'A.md', title: 'A', types: [] });
+
+    const body = parseResult(await handler({
+      title: 'A',
+      set_directory: 'Persons/A.md',
+    }));
+
+    expect(body.ok).toBe(false);
+    const error = body.error as { code: string; message: string };
+    expect(error.code).toBe('INVALID_PARAMS');
+  });
+
+  it('does not move a single node when combined field validation fails', async () => {
+    createGlobalField(db, { name: 'status', field_type: 'enum', enum_values: ['open', 'closed'], required: true });
+    createSchemaDefinition(db, { name: 'strict', field_claims: [{ field: 'status' }] });
+    createNode({ file_path: 'A.md', title: 'A', types: ['strict'], fields: { status: 'open' } });
+
+    const body = parseResult(await handler({
+      title: 'A',
+      set_directory: 'Persons',
+      set_fields: { status: 'invalid-value' },
+    }));
+
+    expect(body.ok).toBe(false);
+    const error = body.error as { code: string };
+    expect(error.code).toBe('VALIDATION_FAILED');
+
+    const dbNode = db.prepare("SELECT file_path FROM nodes WHERE title = 'A'").get() as { file_path: string };
+    expect(dbNode.file_path).toBe('A.md');
+    expect(existsSync(join(vaultPath, 'A.md'))).toBe(true);
+    expect(existsSync(join(vaultPath, 'Persons/A.md'))).toBe(false);
+  });
+
+  it('dry-run preview shows path_changed for moved nodes', async () => {
+    createNode({ file_path: 'Alice.md', title: 'Alice', types: ['person'] });
+    createNode({ file_path: 'Bob.md', title: 'Bob', types: ['person'] });
+    createNode({ file_path: 'Persons/Charlie.md', title: 'Charlie', types: ['person'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['person'] },
+      set_directory: 'Persons',
+      dry_run: true,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.dry_run).toBe(true);
+    expect(data.matched).toBe(3);
+    expect(data.would_update).toBe(2); // Alice, Bob move
+    expect(data.would_skip).toBe(1);   // Charlie already there
+
+    const preview = data.preview as Array<{
+      node_id: string; file_path: string; title: string;
+      changes: { path_changed?: { from: string; to: string }; types_added: string[]; types_removed: string[]; fields_set: Record<string, unknown>; would_fail: boolean };
+    }>;
+
+    const alice = preview.find(p => p.title === 'Alice')!;
+    expect(alice.changes.path_changed).toEqual({ from: '', to: 'Persons' });
+
+    const charlie = preview.find(p => p.title === 'Charlie');
+    expect(charlie).toBeUndefined(); // skipped, not in preview
+  });
+
+  it('dry-run marks move conflicts as would_fail', async () => {
+    createNode({ file_path: 'Alice.md', title: 'Alice', types: ['person'] });
+    createNode({ file_path: 'Persons/Alice.md', title: 'Alice Duplicate', types: ['person'] });
+
+    const body = parseResult(await handler({
+      query: { path_prefix: 'Alice.md' },
+      set_directory: 'Persons',
+      dry_run: true,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.matched).toBe(1);
+    expect(data.would_fail).toBe(1);
+
+    const preview = data.preview as Array<{
+      changes: { would_fail: boolean };
+    }>;
+    expect(preview[0].changes.would_fail).toBe(true);
+  });
+
+  it('moves files to target directory', async () => {
+    createNode({ file_path: 'Alice.md', title: 'Alice', types: ['person'] });
+    createNode({ file_path: 'Bob.md', title: 'Bob', types: ['person'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['person'] },
+      set_directory: 'Persons',
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.updated).toBe(2);
+    expect(data.errors).toEqual([]);
+
+    const alice = db.prepare("SELECT file_path FROM nodes WHERE title = 'Alice'").get() as { file_path: string };
+    expect(alice.file_path).toBe('Persons/Alice.md');
+
+    expect(existsSync(join(vaultPath, 'Persons/Alice.md'))).toBe(true);
+    expect(existsSync(join(vaultPath, 'Alice.md'))).toBe(false);
+  });
+
+  it('skips nodes already at target path', async () => {
+    createNode({ file_path: 'Persons/Alice.md', title: 'Alice', types: ['person'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['person'] },
+      set_directory: 'Persons',
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.matched).toBe(1);
+    expect(data.skipped).toBe(1);
+    expect(data.updated).toBe(0);
+  });
+
+  it('reports conflict errors and continues', async () => {
+    createNode({ file_path: 'Alice.md', title: 'Alice', types: ['person'] });
+    createNode({ file_path: 'Persons/Alice.md', title: 'Alice Dup', types: ['person'] });
+    createNode({ file_path: 'Bob.md', title: 'Bob', types: ['person'] });
+
+    const body = parseResult(await handler({
+      query: { path_prefix: '' },
+      set_directory: 'Persons',
+      add_types: ['person'],
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    const errors = data.errors as Array<{ node_id: string; file_path: string; error: string }>;
+    expect(errors.some(e => e.file_path === 'Alice.md')).toBe(true);
+
+    const bob = db.prepare("SELECT file_path FROM nodes WHERE title = 'Bob'").get() as { file_path: string };
+    expect(bob.file_path).toBe('Persons/Bob.md');
+  });
+
+  it('combines set_directory with add_types', async () => {
+    createNode({ file_path: 'Alice.md', title: 'Alice', types: [] });
+
+    const body = parseResult(await handler({
+      query: { path_prefix: 'Alice.md' },
+      set_directory: 'Persons',
+      add_types: ['person'],
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.updated).toBe(1);
+
+    const alice = db.prepare("SELECT file_path FROM nodes WHERE title = 'Alice'").get() as { file_path: string };
+    expect(alice.file_path).toBe('Persons/Alice.md');
+
+    const types = db.prepare("SELECT schema_type FROM node_types WHERE node_id = (SELECT id FROM nodes WHERE title = 'Alice')").all() as Array<{ schema_type: string }>;
+    expect(types.map(t => t.schema_type)).toContain('person');
+  });
+
+  it('moves to vault root with set_directory empty string', async () => {
+    createNode({ file_path: 'Persons/Alice.md', title: 'Alice', types: ['person'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['person'] },
+      set_directory: '',
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.updated).toBe(1);
+
+    const alice = db.prepare("SELECT file_path FROM nodes WHERE title = 'Alice'").get() as { file_path: string };
+    expect(alice.file_path).toBe('Alice.md');
+    expect(existsSync(join(vaultPath, 'Alice.md'))).toBe(true);
+  });
+});
+
+describe('update-node query mode — exclusion filters', () => {
+  it('excludes keepers by without_titles during bulk update', async () => {
+    createNode({ file_path: 'CLAUDE.md', title: 'CLAUDE', types: ['note'] });
+    createNode({ file_path: 'Move Me.md', title: 'Move Me', types: ['note'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'], without_titles: ['CLAUDE'] },
+      set_directory: 'Notes',
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.updated).toBe(1);
+    expect(existsSync(join(vaultPath, 'CLAUDE.md'))).toBe(true);
+    expect(existsSync(join(vaultPath, 'Notes/Move Me.md'))).toBe(true);
+  });
+
+  it('excludes keepers by without_title_contains during bulk update (#559)', async () => {
+    createNode({ file_path: 'Alpha Opportunity.md', title: 'Alpha Opportunity', types: ['note'] });
+    createNode({ file_path: 'Move Me.md', title: 'Move Me', types: ['note'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'], without_title_contains: 'opportunity' },
+      set_directory: 'Notes',
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.updated).toBe(1);
+    expect(existsSync(join(vaultPath, 'Alpha Opportunity.md'))).toBe(true);
+    expect(existsSync(join(vaultPath, 'Notes/Move Me.md'))).toBe(true);
+  });
+
+  it('excludes keepers by without_node_ids during bulk update', async () => {
+    const keeper = createNode({ file_path: 'Preferences.md', title: 'Preferences', types: ['note'] });
+    createNode({ file_path: 'Archive Me.md', title: 'Archive Me', types: ['note'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'], without_node_ids: [keeper.node_id] },
+      set_directory: 'Notes',
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.updated).toBe(1);
+    expect(existsSync(join(vaultPath, 'Preferences.md'))).toBe(true);
+    expect(existsSync(join(vaultPath, 'Notes/Archive Me.md'))).toBe(true);
+  });
+});
+
+describe('update-node query mode — edits_log', () => {
+  it('writes bulk-mutate entries with batch_id', async () => {
+    createNode({ file_path: 'a.md', title: 'A', types: ['note'] });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'] },
+      add_types: ['clippings'],
+      dry_run: false,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.batch_id).toBeTruthy();
+
+    const logs = db.prepare("SELECT details FROM edits_log WHERE event_type = 'bulk-mutate'").all() as Array<{ details: string }>;
+    expect(logs.length).toBeGreaterThanOrEqual(1);
+    const details = JSON.parse(logs[0].details);
+    expect(details.batch_id).toBe(data.batch_id);
+  });
+});
+
+describe('update-node query mode — full_text filter', () => {
+  it('narrows the matched set by literal title/body substring', async () => {
+    createNode({ file_path: 'a.md', title: 'Alpha', types: ['note'], body: 'contains the keyword zebra' });
+    createNode({ file_path: 'b.md', title: 'Beta', types: ['note'], body: 'nothing notable here' });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'], full_text: 'zebra' },
+      add_types: ['clippings'],
+      dry_run: true,
+    }));
+
+    expect(body.ok).toBe(true);
+    const data = body.data as Record<string, unknown>;
+    expect(data.matched).toBe(1); // only node A's body contains 'zebra'
+  });
+});
+
+describe('update-node query mode — full_text_words filter (#687)', () => {
+  it('narrows the matched set to notes holding the words as whole words', async () => {
+    createNode({ file_path: 'a.md', title: 'Alpha', types: ['note'], body: 'met Ark today' });
+    createNode({ file_path: 'b.md', title: 'Beta', types: ['note'], body: 'the market was busy' });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'], full_text_words: 'Ark' },
+      add_types: ['clippings'],
+      dry_run: true,
+    }));
+
+    expect(body.ok).toBe(true);
+    expect((body.data as Record<string, unknown>).matched).toBe(1); // never widened by a dropped filter
+  });
+
+  it('matches no note for an empty text, never every note (Codex, #688)', async () => {
+    createNode({ file_path: 'a.md', title: 'Alpha', types: ['note'], body: 'met Ark today' });
+
+    const body = parseResult(await handler({
+      query: { types: ['note'], full_text_words: '' },
+      add_types: ['clippings'],
+      dry_run: true,
+    }));
+
+    expect(body.ok).toBe(true);
+    expect((body.data as Record<string, unknown>).matched).toBe(0);
+  });
+});
+
+it('rejects group predicates in bulk mutation without changing nodes', async () => {
+  const before=db.prepare('SELECT * FROM nodes').all();
+  const result=parseResult(await handler({query:{fields:{status:{in_group:{schema:'task',group:'active'}}}},set_fields:{status:'closed'},dry_run:false}));
+  expect(result).toMatchObject({ok:false,error:{code:'INVALID_PARAMS'}});
+  expect((result.error as {message:string}).message).toMatch(/read.only/i);
+  expect(db.prepare('SELECT * FROM nodes').all()).toEqual(before);
+});
+
+it.each(['in_group','is_unclassified'])('allows literal bulk filters on the field named %s', async field => {
+ createGlobalField(db,{name:field,field_type:'string'});
+ createSchemaDefinition(db,{name:'literal',field_claims:[{field}]});
+ createNode({file_path:'literal.md',title:'Literal',types:['literal'],fields:{[field]:'x'}});
+ const result=parseResult(await handler({query:{fields:{[field]:{eq:'x'}}},add_types:['clippings'],dry_run:true}));
+ expect(result).toMatchObject({ok:true,data:{matched:1}});
+});
+
+it.each([
+ {where:{any:[{fields:{status:{in_group:{schema:'task',group:'active'}}}},{types:['task']}]}},
+ {join_filters:[{rel_type:'project',target:{fields:{status:{is_unclassified:{schema:'task'}}}}}]},
+])('rejects nested classification predicates before bulk mutation', async query => {
+ const result=parseResult(await handler({query,add_types:['clippings'],dry_run:false}));
+ expect(result).toMatchObject({ok:false,error:{code:'INVALID_PARAMS',message:expect.stringMatching(/read.only/i)}});
+});

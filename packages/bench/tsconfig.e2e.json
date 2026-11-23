@@ -1,0 +1,14 @@
+{
+  // The e2e suite lives outside tsconfig.json's `rootDir: "src"`, so it would
+  // otherwise never be type-checked at all — `npm test` runs vitest, which
+  // ignores type errors. Separate config (rather than widening the base one)
+  // keeps the base's src-rooted emit layout intact.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src", "test-e2e"]
+}
